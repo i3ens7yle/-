@@ -58,6 +58,11 @@
   .line .info { flex: 1; min-width: 0; }
   .line .sub { color: var(--muted); font-size: 14px; }
   .total-row { display: flex; justify-content: space-between; font-size: 20px; font-weight: 700; padding: 14px 0; }
+  .sum-box { background: var(--card); border-radius: var(--radius); padding: 10px 14px; margin-top: 12px; box-shadow: var(--shadow); }
+  .sum-box .r { display: flex; justify-content: space-between; padding: 4px 0; color: var(--muted); }
+  .sum-box .r.pay { color: var(--ink); font-size: 22px; font-weight: 700; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 10px; }
+  .sum-box .r.after { color: var(--ink); font-weight: 600; }
+  .vat-note { color: var(--muted); font-size: 14px; text-align: center; margin: 10px 0 0; }
   textarea { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 12px; min-height: 64px; resize: vertical; }
   .order-card { background: var(--card); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
   .order-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--muted); font-size: 14px; }
@@ -81,14 +86,15 @@
   <div id="cartLines"></div>
   <label for="note" style="display:block;margin:14px 0 6px;font-weight:600">หมายเหตุถึงครัว (ถ้ามี)</label>
   <textarea id="note" maxlength="200" placeholder="เช่น ไม่ใส่ผักชี, เผ็ดน้อย"></textarea>
-  <div class="total-row"><span>รวม</span><span class="price" id="cartTotal"></span></div>
+  <div class="sum-box" id="cartSum"></div>
+  <div style="height:12px"></div>
   <button class="btn btn-primary" id="submitOrder" style="width:100%;font-size:18px">ยืนยันสั่งอาหาร</button>
 </div></div>
 
 <div class="sheet-bg" id="ordersSheet"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ordersTitle">
   <h2><span id="ordersTitle">รายการที่สั่งแล้ว · โต๊ะ <span class="tno"></span></span><button class="close" data-close aria-label="ปิด">×</button></h2>
   <div id="ordersList"></div>
-  <div class="total-row"><span>ยอดรวมโต๊ะนี้</span><span class="price" id="ordersTotal"></span></div>
+  <div class="sum-box" id="ordersSum"></div>
 </div></div>
 
 <script>
@@ -96,7 +102,18 @@ const params = new URLSearchParams(location.search);
 const TABLE = Number(params.get("table"));
 const KEY = params.get("k") || "";
 const CART_KEY = "cart-" + TABLE + "-" + KEY;
-const baht = (n) => "฿" + Number(n).toLocaleString("th-TH");
+const baht = (n) => "฿" + (Number.isInteger(Number(n)) ? Number(n).toLocaleString("th-TH") : Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+// ต้องคำนวณแบบเดียวกับฝั่งร้าน (server.js: billFor)
+function billFor(subtotal) {
+  const p = (MENU && MENU.vatPercent) || 0;
+  const vat = Math.round(((subtotal * p) / 100) * 100) / 100;
+  return { subtotal, vatPercent: p, vat, total: Math.round((subtotal + vat) * 100) / 100 };
+}
+function sumRows(b, payLabel) {
+  return (b.vatPercent ? `<div class="r"><span>ค่าอาหารและเครื่องดื่ม</span><span class="price">${baht(b.subtotal)}</span></div>
+    <div class="r"><span>VAT ${b.vatPercent}%</span><span class="price">${baht(b.vat)}</span></div>` : "") +
+    `<div class="r pay"><span>${payLabel}</span><span class="price">${baht(b.total)}</span></div>`;
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STATUS = { new: "รอร้านรับ", cooking: "กำลังทำ", served: "เสิร์ฟแล้ว", cancelled: "ยกเลิก" };
 
@@ -158,12 +175,12 @@ function render() {
       ${TABLE_STATE.movedTo ? `<div class="closed-note">➡️ ย้ายไปโต๊ะ ${Number(TABLE_STATE.movedTo)} แล้วจ้า<br>รายการที่สั่งไว้ย้ายไปด้วยแล้ว กรุณาสแกน QR ที่โต๊ะ ${Number(TABLE_STATE.movedTo)} เพื่อสั่งต่อนะจ๊ะ</div>`
         : TABLE_STATE.open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>ดูเมนูและเลือกใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}</header>
     <nav class="cats">${MENU.categories.map((c, ix) => `<button data-cat="${esc(c.id)}"${ix === 0 ? ' class="on"' : ""}>${esc(c.name)}</button>`).join("")}</nav>
-    <main>${sections}</main>
+    <main>${MENU.vatPercent ? `<p class="vat-note">ราคาในเมนูยังไม่รวม VAT ${MENU.vatPercent}%</p>` : ""}${sections}</main>
     <div class="bar"><div class="bar-inner">
       ${call ? `<div class="call-state">${call.type === "bill" ? "แจ้งขอเช็คบิลแล้ว พนักงานกำลังมา" : "เรียกพนักงานแล้ว กำลังมา"}</div>` : ""}
       ${n ? `<button class="btn btn-primary cart-btn" id="openCart"><span>ดูตะกร้า · ${n} รายการ</span><span class="price">${baht(cartTotal())}</span></button>` : ""}
       <div class="row">
-        <button class="btn" id="openOrders">สั่งแล้ว<br><b class="price">${baht(TABLE_STATE.total)}</b></button>
+        <button class="btn" id="openOrders">ยอดที่ต้องจ่าย<br><b class="price">${baht((TABLE_STATE.bill || billFor(TABLE_STATE.total)).total)}</b></button>
         <button class="btn" id="callStaff">เรียก<br>พนักงาน</button>
         <button class="btn" id="callBill"${TABLE_STATE.open ? "" : " disabled"}>ขอ<br>เช็คบิล</button>
       </div>
@@ -178,7 +195,10 @@ function renderCart() {
       <div class="qty"><button class="minus" data-id="${esc(id)}" data-d="-1" aria-label="ลด">−</button><span>${q}</span><button data-id="${esc(id)}" data-d="1" aria-label="เพิ่ม">+</button></div></div>`;
   }).join("");
   document.getElementById("cartLines").innerHTML = lines || `<div class="empty">ยังไม่มีรายการในตะกร้า</div>`;
-  document.getElementById("cartTotal").textContent = baht(cartTotal());
+  const cb = billFor(cartTotal());
+  const after = billFor((TABLE_STATE.total || 0) + cartTotal());
+  document.getElementById("cartSum").innerHTML = sumRows(cb, "รวมตะกร้านี้") +
+    (TABLE_STATE.total ? `<div class="r after"><span>ยอดทั้งโต๊ะหลังสั่ง (รวมที่สั่งไปแล้ว)</span><span class="price">${baht(after.total)}</span></div>` : "");
   const sb = document.getElementById("submitOrder");
   sb.disabled = !cartCount() || !TABLE_STATE.open;
   sb.textContent = TABLE_STATE.open ? "ยืนยันสั่งอาหาร" : "รอพนักงานเปิดโต๊ะก่อน";
@@ -193,7 +213,7 @@ function renderOrders() {
       ${o.items.map((l) => `<div class="it"><span>${esc(l.name)} × ${l.qty}${l.done && o.status !== "cancelled" ? ` <span class="done-tag">✓ ได้แล้ว</span>` : ""}</span><span class="price">${baht(l.price * l.qty)}</span></div>`).join("")}
       ${o.note ? `<div class="note">หมายเหตุ: ${esc(o.note)}</div>` : ""}
     </div>`).join("") : `<div class="empty">ยังไม่ได้สั่งอะไร</div>`;
-  document.getElementById("ordersTotal").textContent = baht(TABLE_STATE.total);
+  document.getElementById("ordersSum").innerHTML = sumRows(TABLE_STATE.bill || billFor(TABLE_STATE.total), "ยอดที่ต้องจ่าย");
 }
 
 function openSheet(id) { document.getElementById(id).classList.add("open"); }

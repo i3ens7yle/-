@@ -11,9 +11,10 @@ const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const SECRET_FILE = path.join(DATA_DIR, "secret.txt");
+const SALES_DIR = path.join(DATA_DIR, "sales"); // ประวัติการขาย 1 ไฟล์ต่อเดือน เก็บถาวร
 const PORT = Number(process.env.PORT) || 3000;
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(SALES_DIR, { recursive: true });
 
 // ---------- config & menu (อ่านใหม่ทุกครั้ง แก้ไฟล์แล้วมีผลทันที ไม่ต้องรีสตาร์ท) ----------
 function readJson(file, fallback) {
@@ -35,6 +36,10 @@ function config() {
     requireOpenTable: c.requireOpenTable !== false,
     // เมนูที่ยังไม่ติ๊กว่า "ได้แล้ว" เกินกี่นาที ให้เด้งเตือนที่หน้าจอพนักงาน
     lateMinutes: Math.max(1, Number(c.lateMinutes) || 20),
+    // VAT ที่บวกเพิ่มจากราคาในเมนู (ใส่ 0 ถ้าไม่เก็บ VAT)
+    vatPercent: c.vatPercent == null ? 7 : Math.max(0, Number(c.vatPercent) || 0),
+    // ร้านเปิดเลยเที่ยงคืน: ยอดก่อนกี่โมงเช้า นับเป็นของ "วันก่อนหน้า"
+    dayStartHour: Math.max(0, Math.min(12, c.dayStartHour == null ? 6 : Number(c.dayStartHour) || 0)),
     staffPin: String(process.env.STAFF_PIN || c.staffPin || "1234"),
     publicUrl: (process.env.PUBLIC_URL || c.publicUrl || "").replace(/\/+$/, ""),
   };
@@ -64,7 +69,7 @@ function tableOk(table, key) {
 
 // ---------- ข้อมูลออร์เดอร์ (เก็บลงไฟล์ data/state.json) ----------
 const state = Object.assign(
-  { nextNo: 1, orders: [], calls: {}, soldOut: [], bills: [], openTables: {}, moved: {} },
+  { nextNo: 1, orders: [], calls: {}, soldOut: [], openTables: {}, moved: {} },
   readJson(STATE_FILE, {})
 );
 let saveTimer = null;
@@ -86,13 +91,37 @@ function tableTotal(table) {
     .filter((o) => o.status !== "cancelled")
     .reduce((s, o) => s + o.total, 0);
 }
+const money = (n) => Math.round(n * 100) / 100;
+// ยอดที่ลูกค้าต้องจ่าย = ราคาอาหาร + VAT
+function billFor(subtotal) {
+  const p = config().vatPercent;
+  const vat = money((subtotal * p) / 100);
+  return { subtotal, vatPercent: p, vat, total: money(subtotal + vat) };
+}
+// "วันขาย" ของร้าน: ยอดหลังเที่ยงคืนก่อน dayStartHour นับเป็นวันก่อนหน้า
+const businessDay = (ts) => bangkokDate(ts - config().dayStartHour * 3600e3);
+const bangkokHour = (ts) =>
+  Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", hour: "2-digit", hourCycle: "h23" }).format(new Date(ts)));
+
+// ---------- ประวัติการขาย (data/sales/YYYY-MM.jsonl: 1 บรรทัด = 1 บิลที่ปิดแล้ว) ----------
+const sales = [];
+for (const f of fs.readdirSync(SALES_DIR).filter((f) => /^\d{4}-\d{2}\.jsonl$/.test(f)).sort()) {
+  for (const line of fs.readFileSync(path.join(SALES_DIR, f), "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try { sales.push(JSON.parse(line)); } catch { console.warn("ข้ามบรรทัดเสียใน", f); }
+  }
+}
+function recordSale(rec) {
+  sales.push(rec);
+  fs.appendFileSync(path.join(SALES_DIR, rec.day.slice(0, 7) + ".jsonl"), JSON.stringify(rec) + "\n");
+}
 function isOpen(t) {
   return !config().requireOpenTable || !!state.openTables[t];
 }
 function today() {
-  const d = bangkokDate(Date.now());
-  const bills = state.bills.filter((b) => bangkokDate(b.closedAt) === d);
-  return { date: d, bills: bills.length, sales: bills.reduce((s, b) => s + b.total, 0) };
+  const d = businessDay(Date.now());
+  const bills = sales.filter((b) => b.day === d);
+  return { date: d, bills: bills.length, sales: money(bills.reduce((s, b) => s + b.total, 0)) };
 }
 
 // ---------- realtime (Server-Sent Events) ----------
@@ -128,6 +157,7 @@ app.get("/api/menu", (req, res) => {
     tagline: c.tagline,
     logo: c.logo,
     tables: c.tables,
+    vatPercent: c.vatPercent,
     categories: m.categories,
     items: m.items.map((i) => ({ ...i, soldOut: sold.has(i.id) })),
   });
@@ -139,7 +169,7 @@ app.get("/api/table/:t", (req, res) => {
   if (!tableOk(t, req.query.k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
   const mv = state.moved[t];
   const movedTo = !openOrders(t).length && mv && Date.now() - mv.at < 3 * 3600e3 ? mv.to : null;
-  res.json({ table: t, open: isOpen(t), movedTo, orders: openOrders(t), total: tableTotal(t), call: state.calls[t] || null });
+  res.json({ table: t, open: isOpen(t), movedTo, orders: openOrders(t), total: tableTotal(t), bill: billFor(tableTotal(t)), call: state.calls[t] || null });
 });
 
 const lastOrderAt = new Map();
@@ -225,13 +255,13 @@ app.get("/api/staff/state", staffOnly, (req, res) => {
       open: isOpen(t),
       openedAt: opened ? opened.openedAt : null,
       orders: os_.length,
-      total: tableTotal(t),
+      total: billFor(tableTotal(t)).total, // ยอดที่ลูกค้าต้องจ่าย (รวม VAT)
       pending: os_.filter((o) => o.status === "new" || o.status === "cooking").length,
       since: opened ? opened.openedAt : os_.length ? os_[0].createdAt : null,
       call: state.calls[t] || null,
     });
   }
-  res.json({ shopName: c.shopName, requireOpenTable: c.requireOpenTable, lateMinutes: c.lateMinutes, now: Date.now(), orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
+  res.json({ shopName: c.shopName, requireOpenTable: c.requireOpenTable, lateMinutes: c.lateMinutes, vatPercent: c.vatPercent, now: Date.now(), orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
 });
 
 app.post("/api/staff/order/:id/status", staffOnly, (req, res) => {
@@ -310,13 +340,25 @@ app.post("/api/staff/table/:t/close", staffOnly, (req, res) => {
   const t = Number(req.params.t);
   const list = openOrders(t);
   if (!list.length && !state.calls[t] && !state.openTables[t]) return res.status(400).json({ error: "โต๊ะนี้ไม่มีบิลค้าง" });
-  const total = tableTotal(t);
+  const bill = billFor(tableTotal(t));
   const now = Date.now();
   for (const o of list) {
     o.billed = true;
     o.billedAt = now;
   }
-  if (list.length) state.bills.push({ table: t, total, orders: list.map((o) => o.no), closedAt: now });
+  const live = list.filter((o) => o.status !== "cancelled");
+  if (live.length) {
+    recordSale({
+      id: crypto.randomUUID(),
+      day: businessDay(now),
+      closedAt: now,
+      table: t,
+      ...bill,
+      orders: live.map((o) => o.no),
+      // แยกตามออร์เดอร์ เก็บเวลาที่สั่งไว้ด้วย (ใช้ดูช่วงเวลาขายดี)
+      items: live.flatMap((o) => o.items.map((l) => ({ id: l.id, name: l.name, price: l.price, qty: l.qty, at: o.createdAt }))),
+    });
+  }
   delete state.calls[t];
   delete state.openTables[t];
   // เก็บประวัติออร์เดอร์ไว้ 7 วันพอ ไฟล์จะได้ไม่โตเรื่อยๆ
@@ -324,7 +366,89 @@ app.post("/api/staff/table/:t/close", staffOnly, (req, res) => {
   state.orders = state.orders.filter((o) => !o.billed || o.billedAt > cutoff);
   save();
   broadcast(t);
-  res.json({ ok: true, total });
+  res.json({ ok: true, ...bill, total: bill.total });
+});
+
+// ---------- รายงานยอดขาย ----------
+const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+function reportRange(q) {
+  const t = businessDay(Date.now());
+  const from = isDay(q.from) ? q.from : t.slice(0, 8) + "01";
+  const to = isDay(q.to) ? q.to : t;
+  return from <= to ? { from, to } : { from: to, to: from };
+}
+function buildReport(from, to) {
+  const list = sales.filter((b) => b.day >= from && b.day <= to);
+  const byDay = new Map(), byMonth = new Map(), items = new Map();
+  const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, qty: 0 }));
+  for (const b of list) {
+    const d = byDay.get(b.day) || { day: b.day, total: 0, subtotal: 0, vat: 0, bills: 0 };
+    d.total += b.total; d.subtotal += b.subtotal; d.vat += b.vat; d.bills++;
+    byDay.set(b.day, d);
+    const mk = b.day.slice(0, 7);
+    const m = byMonth.get(mk) || { month: mk, total: 0, subtotal: 0, vat: 0, bills: 0 };
+    m.total += b.total; m.subtotal += b.subtotal; m.vat += b.vat; m.bills++;
+    byMonth.set(mk, m);
+    for (const l of b.items) {
+      const it = items.get(l.id) || { id: l.id, name: l.name, qty: 0, revenue: 0, bills: new Set() };
+      it.qty += l.qty; it.revenue += l.price * l.qty; it.name = l.name; it.bills.add(b.id);
+      items.set(l.id, it);
+      const h = byHour[bangkokHour(l.at || b.closedAt)];
+      h.revenue += l.price * l.qty; h.qty += l.qty;
+    }
+  }
+  // วันที่ไม่มียอดก็ใส่ 0 ไว้ กราฟจะได้ไม่ขาดช่วง
+  const days = [];
+  for (let d = new Date(from + "T00:00:00Z"); d <= new Date(to + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1)) {
+    const k = d.toISOString().slice(0, 10);
+    days.push(byDay.get(k) || { day: k, total: 0, subtotal: 0, vat: 0, bills: 0 });
+  }
+  const months = [...new Set(days.map((d) => d.day.slice(0, 7)))].map((k) => byMonth.get(k) || { month: k, total: 0, subtotal: 0, vat: 0, bills: 0 });
+  const sold = [...items.values()].map((i) => ({ id: i.id, name: i.name, qty: i.qty, revenue: money(i.revenue), bills: i.bills.size }));
+  const soldIds = new Set(sold.map((i) => i.id));
+  const unsold = menu().items.filter((i) => !soldIds.has(i.id)).map((i) => ({ id: i.id, name: i.name, price: i.price }));
+  const sum = (k) => money(list.reduce((s, b) => s + b[k], 0));
+  const r = (x) => ({ ...x, total: money(x.total), subtotal: money(x.subtotal), vat: money(x.vat) });
+  return {
+    from, to,
+    totals: { total: sum("total"), subtotal: sum("subtotal"), vat: sum("vat"), bills: list.length, qty: sold.reduce((s, i) => s + i.qty, 0) },
+    days: days.map(r), months: months.map(r),
+    hours: byHour.map((h) => ({ ...h, revenue: money(h.revenue) })),
+    items: sold.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue),
+    unsold,
+  };
+}
+app.get("/api/staff/report", staffOnly, (req, res) => {
+  const { from, to } = reportRange(req.query);
+  res.json({ shopName: config().shopName, vatPercent: config().vatPercent, today: businessDay(Date.now()), firstDay: sales.length ? sales[0].day : null, ...buildReport(from, to) });
+});
+
+// ดาวน์โหลดเป็น CSV เปิดด้วย Excel / Google Sheets ได้
+const csvCell = (v) => {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+app.get("/api/staff/report.csv", staffOnly, (req, res) => {
+  const { from, to } = reportRange(req.query);
+  let rows;
+  if (req.query.type === "lines") {
+    rows = [["วันขาย", "เวลาปิดบิล", "โต๊ะ", "เลขบิล", "เมนู", "ราคา", "จำนวน", "รวม (ก่อน VAT)"]];
+    for (const b of sales.filter((b) => b.day >= from && b.day <= to)) {
+      const closed = new Date(b.closedAt).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" });
+      for (const l of b.items) rows.push([b.day, closed, b.table, b.id.slice(0, 8), l.name, l.price, l.qty, money(l.price * l.qty)]);
+    }
+  } else if (req.query.type === "days") {
+    const rep = buildReport(from, to);
+    rows = [["วันขาย", "จำนวนบิล", "ยอดก่อน VAT", "VAT", "ยอดรวม"], ...rep.days.map((d) => [d.day, d.bills, d.subtotal, d.vat, d.total])];
+  } else {
+    const rep = buildReport(from, to);
+    rows = [["อันดับ", "เมนู", "จำนวนที่ขายได้", "ยอดขาย (ก่อน VAT)", "จำนวนบิลที่สั่ง"],
+      ...rep.items.map((i, n) => [n + 1, i.name, i.qty, i.revenue, i.bills]),
+      ...rep.unsold.map((i) => ["-", i.name, 0, 0, 0])];
+  }
+  const name = `sales-${req.query.type || "items"}-${from}_${to}.csv`;
+  res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"` });
+  res.send("\uFEFF" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n"));
 });
 
 app.post("/api/staff/call/:t/clear", staffOnly, (req, res) => {

@@ -5,6 +5,8 @@
   "tables": 20,
   "requireOpenTable": true,
   "lateMinutes": 20,
+  "vatPercent": 7,
+  "dayStartHour": 6,
   "staffPin": "1234",
   "publicUrl": ""
 }

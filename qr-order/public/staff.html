@@ -102,7 +102,12 @@
 <div class="sheet-bg" id="tableSheet"><div class="sheet" role="dialog" aria-modal="true" id="tableBody"></div></div>
 
 <script>
-const baht = (n) => "฿" + Number(n).toLocaleString("th-TH");
+const baht = (n) => "฿" + (Number.isInteger(Number(n)) ? Number(n).toLocaleString("th-TH") : Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+function billFor(subtotal) {
+  const p = (S && S.vatPercent) || 0;
+  const vat = Math.round(((subtotal * p) / 100) * 100) / 100;
+  return { subtotal, vatPercent: p, vat, total: Math.round((subtotal + vat) * 100) / 100 };
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let clockOffset = 0; const now = () => Date.now() + clockOffset;
 const mins = (ts) => Math.floor((now() - ts) / 60000);
@@ -262,6 +267,7 @@ function render() {
       <div class="brand">${MENU.logo ? `<img src="${esc(MENU.logo)}" alt="">` : ""}<div><h1>${esc(S.shopName)}</h1><div class="stat">ยอดปิดบิลวันนี้ <b class="price">${baht(S.today.sales)}</b> · ${S.today.bills} บิล</div></div></div>
       <div class="tools">
         <button class="btn" id="soundBtn">${sound ? "🔔 เสียงเปิด" : "🔕 เสียงปิด"}</button>
+        <a class="btn" href="/report" target="_blank" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">📊 รายงานยอดขาย</a>
         <a class="btn" href="/qr" target="_blank" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">พิมพ์ QR โต๊ะ</a>
         <button class="btn btn-ghost" id="logoutBtn">ออก</button>
       </div>
@@ -303,7 +309,9 @@ function renderTable(n) {
     <h2><span>โต๊ะ ${n}${t && t.since ? ` <span class="stat">· เริ่ม ${hhmm(t.since)}</span>` : ""}</span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
     ${sum.size ? `<table class="sum"><tbody>${[...sum.values()].map((r) => `<tr><td>${esc(r.name)}</td><td>${r.qty} × ${baht(r.price)}</td><td class="price">${baht(r.qty * r.price)}</td></tr>`).join("")}</tbody></table>`
       : `<div class="empty">โต๊ะนี้ยังไม่มีรายการ</div>`}
-    <div class="total-row"><span>ยอดรวม</span><span class="price">${baht(total)}</span></div>
+    ${S.vatPercent ? `<div style="display:flex;justify-content:space-between;color:var(--muted);padding:4px 0"><span>ค่าอาหารและเครื่องดื่ม</span><span class="price">${baht(total)}</span></div>
+    <div style="display:flex;justify-content:space-between;color:var(--muted);padding:4px 0"><span>VAT ${S.vatPercent}%</span><span class="price">${baht(billFor(total).vat)}</span></div>` : ""}
+    <div class="total-row"><span>ยอดที่ต้องเก็บเงิน</span><span class="price">${baht(billFor(total).total)}</span></div>
     ${orders.length ? `<details><summary>ดูแยกทีละออร์เดอร์ (${orders.length})</summary>${orders.map((o) => `
       <div style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><b>#${o.no} · ${hhmm(o.createdAt)}</b><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
       ${o.items.map((l) => `${l.done ? "✓ " : ""}${esc(l.name)} × ${l.qty}`).join(", ")}${o.note ? `<div class="stat">📝 ${esc(o.note)}</div>` : ""}</div>`).join("")}</details>` : ""}
