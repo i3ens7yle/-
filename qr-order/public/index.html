@@ -7,13 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.jpg">
+<link rel="apple-touch-icon" href="/icon.jpg">
 <style>
-  header.top {
-    padding: 18px 16px 10px;
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  }
-  header.top h1 { margin: 0; font-size: 22px; line-height: 1.25; }
-  .table-pill { background: var(--accent); color: var(--accent-ink); font-weight: 700; padding: 6px 14px; border-radius: 999px; white-space: nowrap; }
+  header.top { padding: 20px 16px 14px; text-align: center; }
+  header.top .logo { width: 150px; height: 150px; border-radius: 50%; display: block; margin: 0 auto 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); background: #fff; }
+  header.top h1 { margin: 0; font-size: 24px; line-height: 1.25; }
+  header.top .tagline { color: var(--muted); margin: 2px 0 10px; }
+  .table-pill { display: inline-block; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 18px; padding: 6px 18px; border-radius: 999px; white-space: nowrap; }
   nav.cats {
     position: sticky; top: 0; z-index: 10; background: var(--bg);
     display: flex; gap: 8px; overflow-x: auto; padding: 8px 16px 10px;
@@ -151,7 +152,7 @@ function render() {
   const call = TABLE_STATE.call;
   const scrollY = window.scrollY;
   app.innerHTML = `
-    <header class="top"><h1>${esc(MENU.shopName)}</h1><span class="table-pill">โต๊ะ ${TABLE}</span></header>
+    <header class="top">${MENU.logo ? `<img class="logo" src="${esc(MENU.logo)}" alt="โลโก้ร้าน ${esc(MENU.shopName)}" width="150" height="150">` : ""}<h1>${esc(MENU.shopName)}</h1>${MENU.tagline ? `<div class="tagline">${esc(MENU.tagline)}</div>` : ""}<span class="table-pill">โต๊ะ ${TABLE}</span></header>
     <nav class="cats">${MENU.categories.map((c, ix) => `<button data-cat="${esc(c.id)}"${ix === 0 ? ' class="on"' : ""}>${esc(c.name)}</button>`).join("")}</nav>
     <main>${sections}</main>
     <div class="bar"><div class="bar-inner">

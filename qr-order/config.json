@@ -1,5 +1,7 @@
 {
-  "shopName": "ร้านของเรา",
+  "shopName": "อาม่าแคมป์",
+  "tagline": "มาบ้านอาม่ากันนะจ๊ะ",
+  "logo": "/logo.jpg",
   "tables": 20,
   "staffPin": "1234",
   "publicUrl": ""

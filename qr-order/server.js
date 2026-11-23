@@ -28,6 +28,8 @@ function config() {
   const c = readJson(path.join(ROOT, "config.json"));
   return {
     shopName: c.shopName || "ร้านอาหาร",
+    tagline: c.tagline || "",
+    logo: c.logo || "",
     tables: Math.max(1, Math.min(200, Number(c.tables) || 20)),
     staffPin: String(process.env.STAFF_PIN || c.staffPin || "1234"),
     publicUrl: (process.env.PUBLIC_URL || c.publicUrl || "").replace(/\/+$/, ""),
@@ -116,6 +118,8 @@ app.get("/api/menu", (req, res) => {
   const sold = new Set(state.soldOut);
   res.json({
     shopName: c.shopName,
+    tagline: c.tagline,
+    logo: c.logo,
     tables: c.tables,
     categories: m.categories,
     items: m.items.map((i) => ({ ...i, soldOut: sold.has(i.id) })),

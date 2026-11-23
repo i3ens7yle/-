@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.jpg">
+<link rel="apple-touch-icon" href="/icon.jpg">
 <style>
   .login { max-width: 340px; margin: 16vh auto 0; padding: 24px 16px; text-align: center; }
   .login input { width: 100%; font-size: 28px; text-align: center; letter-spacing: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); margin: 12px 0; }
@@ -15,6 +17,8 @@
     padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card);
   }
   header.top h1 { margin: 0; font-size: 20px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 52px; height: 52px; border-radius: 50%; flex: none; }
   .stat { color: var(--muted); font-size: 14px; }
   .stat b { color: var(--ink); font-size: 18px; }
   .tools { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -198,7 +202,7 @@ function render() {
   }
   document.getElementById("app").innerHTML = `
     <header class="top">
-      <div><h1>${esc(S.shopName)}</h1><div class="stat">ยอดปิดบิลวันนี้ <b class="price">${baht(S.today.sales)}</b> · ${S.today.bills} บิล</div></div>
+      <div class="brand">${MENU.logo ? `<img src="${esc(MENU.logo)}" alt="">` : ""}<div><h1>${esc(S.shopName)}</h1><div class="stat">ยอดปิดบิลวันนี้ <b class="price">${baht(S.today.sales)}</b> · ${S.today.bills} บิล</div></div></div>
       <div class="tools">
         <button class="btn" id="soundBtn">${sound ? "🔔 เสียงเปิด" : "🔕 เสียงปิด"}</button>
         <a class="btn" href="/qr" target="_blank" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">พิมพ์ QR โต๊ะ</a>
