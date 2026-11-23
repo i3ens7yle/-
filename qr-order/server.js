@@ -111,17 +111,6 @@ for (const f of fs.readdirSync(SALES_DIR).filter((f) => /^\d{4}-\d{2}\.jsonl$/.t
     try { sales.push(JSON.parse(line)); } catch { console.warn("ข้ามบรรทัดเสียใน", f); }
   }
 }
-// ---------- รายจ่าย (data/expenses.json) ----------
-const EXPENSE_FILE = path.join(DATA_DIR, "expenses.json");
-const EXPENSE_CATEGORIES = ["วัตถุดิบอาหาร", "เบียร์ / เหล้า / เครื่องดื่ม", "น้ำแข็ง / แก๊ส", "ค่าแรงพนักงาน", "ค่าเช่าที่", "ค่าน้ำ / ค่าไฟ / เน็ต", "อุปกรณ์ / ซ่อมแซม", "อื่นๆ"];
-const expenses = readJson(EXPENSE_FILE, []);
-function saveExpenses() {
-  const tmp = EXPENSE_FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(expenses, null, 1));
-  fs.renameSync(tmp, EXPENSE_FILE);
-}
-const expensesIn = (from, to) => expenses.filter((e) => e.date >= from && e.date <= to);
-
 function recordSale(rec) {
   sales.push(rec);
   fs.appendFileSync(path.join(SALES_DIR, rec.day.slice(0, 7) + ".jsonl"), JSON.stringify(rec) + "\n");
@@ -420,19 +409,9 @@ function buildReport(from, to) {
   const unsold = menu().items.filter((i) => !soldIds.has(i.id)).map((i) => ({ id: i.id, name: i.name, price: i.price }));
   const sum = (k) => money(list.reduce((s, b) => s + b[k], 0));
   const r = (x) => ({ ...x, total: money(x.total), subtotal: money(x.subtotal), vat: money(x.vat) });
-  const ex = expensesIn(from, to);
-  const exTotal = money(ex.reduce((s, e) => s + e.amount, 0));
-  const exByCat = new Map();
-  for (const e of ex) exByCat.set(e.category, money((exByCat.get(e.category) || 0) + e.amount));
-  const exByDay = new Map();
-  for (const e of ex) exByDay.set(e.date, money((exByDay.get(e.date) || 0) + e.amount));
-  for (const d of days) d.expense = exByDay.get(d.day) || 0;
-  for (const m of months) m.expense = money(ex.filter((e) => e.date.startsWith(m.month)).reduce((s, e) => s + e.amount, 0));
   return {
     from, to,
-    totals: { total: sum("total"), subtotal: sum("subtotal"), vat: sum("vat"), bills: list.length, qty: sold.reduce((s, i) => s + i.qty, 0),
-      expense: exTotal, profit: money(sum("subtotal") - exTotal) },
-    expenseByCategory: [...exByCat].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
+    totals: { total: sum("total"), subtotal: sum("subtotal"), vat: sum("vat"), bills: list.length, qty: sold.reduce((s, i) => s + i.qty, 0) },
     days: days.map(r), months: months.map(r),
     hours: byHour.map((h) => ({ ...h, revenue: money(h.revenue) })),
     items: sold.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue),
@@ -452,39 +431,7 @@ const csvCell = (v) => {
 app.get("/api/staff/report.csv", staffOnly, (req, res) => {
   const { from, to } = reportRange(req.query);
   let rows;
-  if (req.query.type === "ledger") {
-    // บัญชีรายรับรายจ่าย (เงินเข้า-ออกจริง) มียอดยกมาและคงเหลือสะสม
-    const before = (k) => k < from;
-    const opening = money(sales.filter((b) => before(b.day)).reduce((s, b) => s + b.total, 0) - expenses.filter((e) => before(e.date)).reduce((s, e) => s + e.amount, 0));
-    rows = [["วันที่", "ประเภท", "หมวด", "รายการ", "รายรับ", "รายจ่าย", "คงเหลือ", "VAT ขาย (อยู่ในรายรับ)", "VAT ซื้อ (อยู่ในรายจ่าย)", "หมายเหตุ"]];
-    let bal = opening;
-    rows.push([from, "ยอดยกมา", "", "ยอดคงเหลือก่อนวันที่ " + from, "", "", bal, "", "", ""]);
-    const byDay = new Map();
-    for (const b of sales.filter((b) => b.day >= from && b.day <= to)) {
-      const d = byDay.get(b.day) || { total: 0, vat: 0, bills: 0 };
-      d.total += b.total; d.vat += b.vat; d.bills++; byDay.set(b.day, d);
-    }
-    const ex = expensesIn(from, to).slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
-    const dates = [...new Set([...byDay.keys(), ...ex.map((e) => e.date)])].sort();
-    let inSum = 0, outSum = 0, vatIn = 0, vatOut = 0;
-    for (const day of dates) {
-      const d = byDay.get(day);
-      if (d) {
-        bal = money(bal + d.total); inSum += d.total; vatOut += d.vat;
-        rows.push([day, "รายรับ", "ขายหน้าร้าน", `ยอดขาย ${d.bills} บิล`, money(d.total), "", bal, money(d.vat), "", ""]);
-      }
-      for (const e of ex.filter((e) => e.date === day)) {
-        bal = money(bal - e.amount); outSum += e.amount; vatIn += e.vat || 0;
-        rows.push([day, "รายจ่าย", e.category, e.desc, "", e.amount, bal, "", e.vat || "", e.note || ""]);
-      }
-    }
-    rows.push([], ["", "สรุป", "", "รวมรายรับ", money(inSum), "", "", money(vatOut), "", ""],
-      ["", "สรุป", "", "รวมรายจ่าย", "", money(outSum), "", "", money(vatIn), ""],
-      ["", "สรุป", "", "รายรับ − รายจ่าย ในช่วงนี้", money(inSum - outSum), "", bal, "", "", ""]);
-  } else if (req.query.type === "expenses") {
-    rows = [["วันที่", "หมวด", "รายการ", "จำนวนเงิน", "VAT ซื้อ", "หมายเหตุ"],
-      ...expensesIn(from, to).sort((a, b) => a.date.localeCompare(b.date)).map((e) => [e.date, e.category, e.desc, e.amount, e.vat || "", e.note || ""])];
-  } else if (req.query.type === "lines") {
+  if (req.query.type === "lines") {
     rows = [["วันขาย", "เวลาปิดบิล", "โต๊ะ", "เลขบิล", "เมนู", "ราคา", "จำนวน", "รวม (ก่อน VAT)"]];
     for (const b of sales.filter((b) => b.day >= from && b.day <= to)) {
       const closed = new Date(b.closedAt).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" });
@@ -502,35 +449,6 @@ app.get("/api/staff/report.csv", staffOnly, (req, res) => {
   const name = `sales-${req.query.type || "items"}-${from}_${to}.csv`;
   res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"` });
   res.send("\uFEFF" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n"));
-});
-
-// ----- บันทึกรายจ่าย -----
-app.get("/api/staff/expenses", staffOnly, (req, res) => {
-  const { from, to } = reportRange(req.query);
-  res.json({ from, to, today: businessDay(Date.now()), categories: EXPENSE_CATEGORIES,
-    expenses: expensesIn(from, to).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt) });
-});
-app.post("/api/staff/expenses", staffOnly, (req, res) => {
-  const b = req.body || {};
-  const amount = money(Number(b.amount));
-  const vat = money(Number(b.vat) || 0);
-  if (!isDay(b.date)) return res.status(400).json({ error: "วันที่ไม่ถูกต้อง" });
-  if (!(amount > 0) || amount > 10000000) return res.status(400).json({ error: "ใส่จำนวนเงินให้ถูกต้อง" });
-  if (vat < 0 || vat > amount) return res.status(400).json({ error: "VAT ต้องไม่เกินจำนวนเงิน" });
-  const desc = String(b.desc || "").trim().slice(0, 120);
-  if (!desc) return res.status(400).json({ error: "ใส่รายการด้วย เช่น ซื้อเบียร์ 10 ลัง" });
-  const e = { id: crypto.randomUUID(), date: b.date, category: EXPENSE_CATEGORIES.includes(b.category) ? b.category : "อื่นๆ",
-    desc, amount, vat, note: String(b.note || "").trim().slice(0, 120), createdAt: Date.now() };
-  expenses.push(e);
-  saveExpenses();
-  res.json(e);
-});
-app.delete("/api/staff/expenses/:id", staffOnly, (req, res) => {
-  const i = expenses.findIndex((e) => e.id === req.params.id);
-  if (i < 0) return res.status(404).json({ error: "ไม่พบรายการ" });
-  expenses.splice(i, 1);
-  saveExpenses();
-  res.json({ ok: true });
 });
 
 app.post("/api/staff/call/:t/clear", staffOnly, (req, res) => {

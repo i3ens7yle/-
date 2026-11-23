@@ -23,15 +23,11 @@
   .dates { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .dates input { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 10px; min-height: 40px; }
   .range-label { color: var(--muted); font-size: 14px; margin: 4px 0 12px; }
-  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-  .kpi { min-width: 0; }
-  .kpi.hero { grid-column: span 2; }
-  .kpi .l small { font-size: 12px; }
+  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .kpi { background: var(--card); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
   .kpi .l { color: var(--muted); font-size: 14px; }
   .kpi .v { font-size: 26px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
   .kpi.hero .v { font-size: 32px; }
-  .kpi .v { overflow-wrap: anywhere; }
   .card { background: var(--card); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); margin-top: 16px; }
   .card h2 { margin: 0; font-size: 18px; }
   .card .hint { color: var(--muted); font-size: 14px; margin: 2px 0 10px; }
@@ -79,8 +75,7 @@
   <header class="top">
     <img id="logo" src="/logo.jpg" alt="">
     <div><h1>รายงานยอดขาย</h1><div class="sub" id="shop"></div></div>
-    <a class="btn back" href="/expenses">💸 บันทึกรายจ่าย</a>
-    <a class="btn back" href="/staff" style="margin-left:0">← หน้าจอพนักงาน</a>
+    <a class="btn back" href="/staff">← หน้าจอพนักงาน</a>
   </header>
 
   <div class="filters" role="group" aria-label="ช่วงเวลา">
@@ -190,7 +185,7 @@ function render() {
   const multi = R.from !== R.to;
   document.getElementById("rangeLabel").textContent = "ช่วงที่ดู: " + (multi ? dayLabel(R.from, true) + " – " + dayLabel(R.to, true) : dayLabel(R.from, true)) +
     " · นับยอดตามวันปิดบิล (หลังเที่ยงคืนนับรวมกับคืนก่อน)";
-  if (!T.bills && !T.expense) {
+  if (!T.bills) {
     body.innerHTML = `<div class="card"><div class="empty">ยังไม่มียอดขายในช่วงนี้<br><small>ยอดจะเข้ารายงานเมื่อกด "ปิดบิล" ในหน้าจอพนักงาน</small></div></div>${unsoldBlock()}`;
     return;
   }
@@ -211,22 +206,19 @@ function render() {
   body.innerHTML = `
     <div class="kpis">
       <div class="kpi hero"><div class="l">ยอดขายรวม (รวม VAT)</div><div class="v">${baht(T.total)}</div></div>
-      <div class="kpi hero"><div class="l">กำไรเบื้องต้น <small>(ยอดก่อน VAT − รายจ่าย)</small></div><div class="v" style="color:${T.profit < 0 ? "var(--bad)" : "var(--good)"}">${T.profit < 0 ? "−" : ""}${baht(Math.abs(T.profit))}</div></div>
       <div class="kpi"><div class="l">ยอดก่อน VAT</div><div class="v">${baht(T.subtotal)}</div></div>
       <div class="kpi"><div class="l">VAT ${R.vatPercent}% ที่เก็บมา</div><div class="v">${baht(T.vat)}</div></div>
       <div class="kpi"><div class="l">จำนวนบิล</div><div class="v">${num(T.bills)}</div></div>
-      <div class="kpi"><div class="l">เฉลี่ยต่อบิล</div><div class="v">${T.bills ? baht(Math.round(T.total / T.bills)) : "–"}</div></div>
-      <div class="kpi"><div class="l">รายจ่าย</div><div class="v">${baht(T.expense)}</div></div>
+      <div class="kpi"><div class="l">เฉลี่ยต่อบิล</div><div class="v">${baht(Math.round(T.total / T.bills))}</div></div>
     </div>
-    ${T.expense ? "" : `<p class="hint" style="color:var(--muted);font-size:14px;margin:8px 0 0">ยังไม่มีรายจ่ายในช่วงนี้ · <a href="/expenses">บันทึกรายจ่าย</a> เพื่อดูกำไรจริง</p>`}
 
     <div class="card">
       <div class="card-head"><div><h2>ยอดขาย${grain === "month" ? "รายเดือน" : "รายวัน"} (รวม VAT)</h2>
         <div class="hint">${timeline.length > 1 ? `ขายได้มากที่สุด: ${grain === "month" ? monthLabel(R.months[timeline.indexOf(best)].month, true) : dayLabel(R.days[timeline.indexOf(best)].day, true)} · ${baht(best.value)}` : "แตะที่แท่งเพื่อดูรายละเอียด"}</div></div>
         <div class="seg" role="group" aria-label="มุมมอง"><button data-g="day" class="${grain === "day" ? "on" : ""}" ${R.days.length > 92 ? "disabled" : ""}>รายวัน</button><button data-g="month" class="${grain === "month" ? "on" : ""}">รายเดือน</button></div></div>
       <div class="chart" id="cTimeline" data-title="ยอดขาย"></div>
-      <details class="tbl"><summary>ดูเป็นตาราง</summary><table class="data"><thead><tr><th>${grain === "month" ? "เดือน" : "วัน"}</th><th>บิล</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th><th>รายจ่าย</th></tr></thead><tbody>
-        ${(grain === "month" ? R.months.map((m) => [monthLabel(m.month, true), m]) : R.days.map((d) => [dayLabel(d.day, true), d])).map(([l, x]) => `<tr><td>${l}</td><td>${num(x.bills)}</td><td>${baht(x.subtotal)}</td><td>${baht(x.vat)}</td><td><b>${baht(x.total)}</b></td><td>${x.expense ? baht(x.expense) : "–"}</td></tr>`).join("")}
+      <details class="tbl"><summary>ดูเป็นตาราง</summary><table class="data"><thead><tr><th>${grain === "month" ? "เดือน" : "วัน"}</th><th>บิล</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th></tr></thead><tbody>
+        ${(grain === "month" ? R.months.map((m) => [monthLabel(m.month, true), m]) : R.days.map((d) => [dayLabel(d.day, true), d])).map(([l, x]) => `<tr><td>${l}</td><td>${num(x.bills)}</td><td>${baht(x.subtotal)}</td><td>${baht(x.vat)}</td><td><b>${baht(x.total)}</b></td></tr>`).join("")}
       </tbody></table></details>
     </div>
 
@@ -248,13 +240,9 @@ function render() {
       ${hours.length ? `<div class="chart" id="cHours" data-title="ยอดขายตามชั่วโมง"></div>` : `<div class="empty">ยังไม่มีข้อมูล</div>`}
     </div>
 
-    ${R.expenseByCategory.length ? `<div class="card"><h2>รายจ่ายแยกตามหมวด</h2><div class="hint">รวม ${baht(T.expense)}</div>
-      <div class="rank">${R.expenseByCategory.map((c, n) => `<div class="row"><span class="n">${n + 1}</span><span class="nm">${esc(c.category)}</span>
-        <span class="bar"><i style="width:${(c.amount / R.expenseByCategory[0].amount) * 100}%"></i></span><span class="val"><b>${baht(c.amount)}</b><small>${Math.round((c.amount / T.expense) * 100)}%</small></span></div>`).join("")}</div></div>` : ""}
-
     <div class="card">
-      <h2>ดาวน์โหลดข้อมูล</h2><div class="hint">ไฟล์ CSV เปิดด้วย Excel หรือ Google Sheets ได้ · ข้อมูลทั้งหมดเก็บถาวรในโฟลเดอร์ data</div>
-      <div class="downloads"><a class="btn btn-primary" href="/api/staff/report.csv?type=ledger&from=${R.from}&to=${R.to}&pin=${encodeURIComponent(PIN)}">⬇ บัญชีรายรับรายจ่าย</a>${dl("expenses", "รายจ่าย")}${dl("items", "สรุปตามเมนู")}${dl("days", "ยอดรายวัน")}${dl("lines", "ทุกรายการที่ขาย")}</div>
+      <h2>ดาวน์โหลดข้อมูล</h2><div class="hint">ไฟล์ CSV เปิดด้วย Excel หรือ Google Sheets ได้ · ข้อมูลทั้งหมดเก็บถาวรในโฟลเดอร์ data/sales</div>
+      <div class="downloads">${dl("items", "สรุปตามเมนู")}${dl("days", "ยอดรายวัน")}${dl("lines", "ทุกรายการที่ขาย")}</div>
     </div>`;
 
   columnChart(document.getElementById("cTimeline"), timeline);
