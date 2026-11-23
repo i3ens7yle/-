@@ -32,8 +32,9 @@ function config() {
     tagline: c.tagline || "",
     logo: c.logo || "",
     tables: Math.max(1, Math.min(200, Number(c.tables) || 20)),
+    // false (ค่าตั้งต้น) = ลูกค้าสั่งได้เลย สั่งครั้งแรกถือว่าเปิดโต๊ะอัตโนมัติ
     // true = ลูกค้าสั่งได้เฉพาะโต๊ะที่พนักงานกด "เปิดโต๊ะ" แล้ว (กันคนถ่ายรูป QR ไปสั่งเล่นจากนอกร้าน)
-    requireOpenTable: c.requireOpenTable !== false,
+    requireOpenTable: c.requireOpenTable === true,
     // เมนูที่ยังไม่ติ๊กว่า "ได้แล้ว" เกินกี่นาที ให้เด้งเตือนที่หน้าจอพนักงาน
     lateMinutes: Math.max(1, Number(c.lateMinutes) || 20),
     // VAT ที่บวกเพิ่มจากราคาในเมนู (ใส่ 0 ถ้าไม่เก็บ VAT)
@@ -115,8 +116,13 @@ function recordSale(rec) {
   sales.push(rec);
   fs.appendFileSync(path.join(SALES_DIR, rec.day.slice(0, 7) + ".jsonl"), JSON.stringify(rec) + "\n");
 }
+// โต๊ะเปิดอยู่จริง (พนักงานกดเปิด หรือลูกค้าสั่งครั้งแรกแล้ว)
 function isOpen(t) {
-  return !config().requireOpenTable || !!state.openTables[t];
+  return !!state.openTables[t];
+}
+// ลูกค้าสั่งได้ไหม
+function canOrder(t) {
+  return !config().requireOpenTable || isOpen(t);
 }
 function today() {
   const d = businessDay(Date.now());
@@ -169,7 +175,7 @@ app.get("/api/table/:t", (req, res) => {
   if (!tableOk(t, req.query.k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
   const mv = state.moved[t];
   const movedTo = !openOrders(t).length && mv && Date.now() - mv.at < 3 * 3600e3 ? mv.to : null;
-  res.json({ table: t, open: isOpen(t), movedTo, orders: openOrders(t), total: tableTotal(t), bill: billFor(tableTotal(t)), call: state.calls[t] || null });
+  res.json({ table: t, open: canOrder(t), movedTo, orders: openOrders(t), total: tableTotal(t), bill: billFor(tableTotal(t)), call: state.calls[t] || null });
 });
 
 const lastOrderAt = new Map();
@@ -177,7 +183,7 @@ app.post("/api/order", (req, res) => {
   const { table, k, items, note } = req.body || {};
   const t = Number(table);
   if (!tableOk(t, k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
-  if (!isOpen(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด กรุณาเรียกพนักงานเพื่อเปิดโต๊ะก่อน" });
+  if (!canOrder(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด กรุณาเรียกพนักงานเพื่อเปิดโต๊ะก่อน" });
   if (Date.now() - (lastOrderAt.get(t) || 0) < 3000)
     return res.status(429).json({ error: "สั่งถี่เกินไป รอสักครู่แล้วลองใหม่" });
 
@@ -206,6 +212,12 @@ app.post("/api/order", (req, res) => {
     createdAt: Date.now(),
     billed: false,
   };
+  // สั่งครั้งแรกของโต๊ะ = เปิดโต๊ะอัตโนมัติ (ติดป้ายให้พนักงานเช็คว่ามีลูกค้านั่งจริง)
+  if (!state.openTables[t]) {
+    state.openTables[t] = { openedAt: order.createdAt, auto: true };
+    order.opensTable = true;
+    delete state.moved[t];
+  }
   state.orders.push(order);
   lastOrderAt.set(t, Date.now());
   save();
@@ -218,7 +230,7 @@ app.post("/api/call", (req, res) => {
   const t = Number(table);
   if (!tableOk(t, k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง" });
   if (!["staff", "bill"].includes(type)) return res.status(400).json({ error: "type ไม่ถูกต้อง" });
-  if (type === "bill" && !isOpen(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด" });
+  if (type === "bill" && !canOrder(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด" });
   const prev = state.calls[t];
   if (prev && Date.now() - prev.at < 10000) return res.json({ ok: true }); // กันกดรัว
   state.calls[t] = { type, at: Date.now() };

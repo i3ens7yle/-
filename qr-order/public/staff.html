@@ -230,7 +230,7 @@ function orderCard(o) {
     : `สั่ง <b>${hhmm(o.createdAt)}</b> · ${o.status === "served" || o.status === "cancelled" ? ago(o.createdAt) : `รอมา <b>${waited < 1 ? "ไม่ถึง 1" : waited}</b> นาที`}`;
   const canTick = o.status !== "cancelled";
   return `<div class="order ${o.status}${isLate ? " late" : ""}">
-    <div class="head"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no}${o.movedFrom ? ` · ย้ายจากโต๊ะ ${o.movedFrom}` : ""}</span></div>
+    <div class="head"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">${o.opensTable ? `<span class="badge s-cooking" title="ออร์เดอร์แรกของโต๊ะนี้ ช่วยเช็คว่ามีลูกค้านั่งจริง">🆕 เปิดโต๊ะ</span> ` : ""}#${o.no}${o.movedFrom ? ` · ย้ายจากโต๊ะ ${o.movedFrom}` : ""}</span></div>
     <div class="when">🕒 ${when}</div>
     <ul>${o.items.map((l, i) => `<li class="${l.done ? "done" : ""}">${canTick ? `<button class="tick${l.done ? " on" : ""}" data-oid="${o.id}" data-item="${i}" data-done="${l.done ? "0" : "1"}" aria-pressed="${!!l.done}" aria-label="${l.done ? "ยกเลิกติ๊ก" : "ติ๊กว่าได้แล้ว"} ${esc(l.name)}">✓</button>` : ""}<span class="q">${l.qty}×</span><span class="nm">${esc(l.name)}</span>${isLate && !l.done ? `<span class="late-tag">⏰ ${waited} นาที</span>` : ""}</li>`).join("")}</ul>
     ${o.note ? `<div class="note">📝 ${esc(o.note)}</div>` : ""}
@@ -253,7 +253,7 @@ function render() {
       ${col("served", "เสิร์ฟแล้ว (ล่าสุด)", by("served").slice(-12).reverse())}
     </div>`;
   } else if (tab === "tables") {
-    const busy = (n) => { const x = S.tables[n - 1]; return !!(x && (x.orders || (S.requireOpenTable && x.open))); };
+    const busy = (n) => { const x = S.tables[n - 1]; return !!(x && (x.orders || x.open)); };
     const mv = moveMode;
     let bar;
     if (!mv) bar = `<div class="move-bar"><span class="step">แตะโต๊ะเพื่อดูบิล / เปิดโต๊ะ<small>ลูกค้าย้ายโต๊ะ? กดปุ่มทางขวา แล้วแตะโต๊ะเดิมกับโต๊ะใหม่</small></span><span class="acts"><button class="btn btn-primary" data-mv="start">↔️ ย้าย / รวมโต๊ะ</button></span></div>`;
@@ -261,10 +261,10 @@ function render() {
     else if (!mv.to) bar = `<div class="move-bar on"><span class="step">ขั้นที่ 2: แตะโต๊ะ<b>ใหม่</b>ของโต๊ะ ${mv.from}<small>โต๊ะว่าง = ย้ายไป · โต๊ะที่มีลูกค้า = รวมเป็นบิลเดียว</small></span><span class="acts"><button class="btn" data-mv="restart">← เลือกโต๊ะเดิมใหม่</button><button class="btn" data-mv="cancel">ยกเลิก</button></span></div>`;
     else { const merge = busy(mv.to); bar = `<div class="move-bar on"><span class="step">${merge ? `รวมโต๊ะ ${mv.from} เข้ากับโต๊ะ ${mv.to}` : `ย้ายโต๊ะ ${mv.from} → โต๊ะ ${mv.to}`}<small>${merge ? `รายการทั้งหมดจะรวมเป็นบิลเดียวที่โต๊ะ ${mv.to}` : "รายการที่สั่งไว้และยอดเงินจะย้ายไปด้วย"}</small></span><span class="acts"><button class="btn btn-good" data-mv="go">✓ ยืนยัน${merge ? "รวมโต๊ะ" : "ย้าย"}</button><button class="btn" data-mv="retarget">เลือกโต๊ะใหม่</button><button class="btn" data-mv="cancel">ยกเลิก</button></span></div>`; }
     body = bar + `<div class="grid">${S.tables.map((t) => {
-      const cls = t.call ? "call" : t.pending ? "pending" : t.orders ? "active" : !t.open ? "closed-t" : S.requireOpenTable ? "open-t" : "empty-t";
-      const sub = t.call ? (t.call.type === "bill" ? "💵 ขอเช็คบิล" : t.open ? "🔔 เรียกพนักงาน" : "🔔 เรียกให้เปิดโต๊ะ")
+      const cls = t.call ? "call" : t.pending ? "pending" : t.orders ? "active" : !t.open ? (S.requireOpenTable ? "closed-t" : "empty-t") : "open-t";
+      const sub = t.call ? (t.call.type === "bill" ? "💵 ขอเช็คบิล" : t.open || !S.requireOpenTable ? "🔔 เรียกพนักงาน" : "🔔 เรียกให้เปิดโต๊ะ")
         : t.orders ? `${t.orders} ออร์เดอร์${t.pending ? ` · รอ ${t.pending}` : ""}<br>นั่งมา ${ago(t.since)}`
-        : !t.open ? "🔒 ปิดอยู่" : S.requireOpenTable ? `เปิดแล้ว ยังไม่สั่ง<br>${ago(t.since)}` : "ว่าง";
+        : !t.open ? (S.requireOpenTable ? "🔒 ปิดอยู่" : "ว่าง") : `เปิดแล้ว ยังไม่สั่ง<br>${ago(t.since)}`;
       let attr = `data-table="${t.table}"`, extra = "", tag = "";
       if (mv) {
         if (mv.from === t.table) { extra = " pick-src"; tag = `<span class="pick-tag">ย้ายออก</span>`; attr = `data-mvpick="${t.table}"`; }
@@ -297,7 +297,7 @@ function render() {
       <div class="alert late"><span>⏰ โต๊ะ ${x.o.table} · ${x.l.qty}× ${esc(x.l.name)} · สั่ง ${hhmm(x.o.createdAt)} รอมา ${x.m} นาที ได้หรือยัง?</span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn" data-oid="${x.o.id}" data-item="${x.idx}" data-done="1">✓ ได้แล้ว</button><button class="btn" data-snooze="${x.key}">ยังไม่ได้ · เตือนอีก ${SNOOZE_MIN} นาที</button></span></div>`).join("")}${calls.map((t) => `
       <div class="alert ${t.call.type}"><span>${t.call.type === "bill" ? "💵" : "🔔"} โต๊ะ ${t.table} ${t.call.type === "bill" ? "ขอเช็คบิล" : "เรียกพนักงาน"} · ${ago(t.call.at)}</span>
-      <span style="display:flex;gap:6px">${t.call.type === "bill" ? `<button class="btn" data-table="${t.table}">ดูบิล</button>` : ""}${t.open ? "" : `<button class="btn btn-good" data-opentable="${t.table}">เปิดโต๊ะ</button>`}<button class="btn" data-clear="${t.table}">รับทราบ</button></span></div>`).join("")}</div>` : ""}
+      <span style="display:flex;gap:6px">${t.call.type === "bill" ? `<button class="btn" data-table="${t.table}">ดูบิล</button>` : ""}${t.open || !S.requireOpenTable ? "" : `<button class="btn btn-good" data-opentable="${t.table}">เปิดโต๊ะ</button>`}<button class="btn" data-clear="${t.table}">รับทราบ</button></span></div>`).join("")}</div>` : ""}
     <div class="tabs">
       <button data-tab="orders" class="${tab === "orders" ? "on" : ""}">ออร์เดอร์${newCount ? `<span class="count">${newCount}</span>` : ""}</button>
       <button data-tab="tables" class="${tab === "tables" ? "on" : ""}">ดูตามโต๊ะ</button>
@@ -320,8 +320,8 @@ function renderTable(n) {
   const t = S.tables.find((x) => x.table === n);
   if (t && !t.open) {
     document.getElementById("tableBody").innerHTML = `
-      <h2><span>โต๊ะ ${n} <span class="stat">· ปิดอยู่</span></span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
-      <p style="color:var(--muted);margin:0 0 12px">ลูกค้านั่งที่โต๊ะนี้แล้วใช่ไหม? กดเปิดโต๊ะ ลูกค้าถึงจะสแกน QR สั่งอาหารได้ พอปิดบิล โต๊ะจะปิดเองอัตโนมัติ</p>
+      <h2><span>โต๊ะ ${n} <span class="stat">· ${S.requireOpenTable ? "ปิดอยู่" : "ว่าง"}</span></span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
+      <p style="color:var(--muted);margin:0 0 12px">${S.requireOpenTable ? "ลูกค้านั่งที่โต๊ะนี้แล้วใช่ไหม? กดเปิดโต๊ะ ลูกค้าถึงจะสแกน QR สั่งอาหารได้ พอปิดบิล โต๊ะจะปิดเองอัตโนมัติ" : "ลูกค้าสแกน QR สั่งได้เลย โต๊ะจะเปิดเองเมื่อสั่งครั้งแรก ถ้าลูกค้านั่งแล้วแต่ยังไม่สั่ง จะกดเปิดโต๊ะไว้ก่อนก็ได้"}</p>
       <button class="btn btn-good open-big" data-opentable="${n}">🔓 เปิดโต๊ะ ${n}</button>`;
     document.getElementById("tableSheet").classList.add("open");
     return;
@@ -337,7 +337,7 @@ function renderTable(n) {
       <div style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><b>#${o.no} · ${hhmm(o.createdAt)}</b><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
       ${o.items.map((l) => `${l.done ? "✓ " : ""}${esc(l.name)} × ${l.qty}`).join(", ")}${o.note ? `<div class="stat">📝 ${esc(o.note)}</div>` : ""}</div>`).join("")}</details>` : ""}
     <button class="btn" style="width:100%;margin-bottom:8px" data-movefrom="${n}">↔️ ย้าย / รวมโต๊ะนี้</button>
-    <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && (t.call || (S.requireOpenTable && t.open))) ? "" : "disabled"}>${orders.length ? "รับเงินแล้ว · ปิดบิล / ปิดโต๊ะ" : "ปิดโต๊ะ (ลูกค้ากลับแล้ว)"}</button>`;
+    <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && (t.call || t.open)) ? "" : "disabled"}>${orders.length ? "รับเงินแล้ว · ปิดบิล / ปิดโต๊ะ" : "ปิดโต๊ะ (ลูกค้ากลับแล้ว)"}</button>`;
   document.getElementById("tableSheet").classList.add("open");
 }
 function closeTableSheet() { openTable = null; document.getElementById("tableSheet").classList.remove("open"); }

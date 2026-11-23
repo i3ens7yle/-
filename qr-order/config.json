@@ -3,7 +3,7 @@
   "tagline": "มาบ้านอาม่ากันนะจ๊ะ",
   "logo": "/logo.jpg",
   "tables": 20,
-  "requireOpenTable": true,
+  "requireOpenTable": false,
   "lateMinutes": 20,
   "vatPercent": 7,
   "dayStartHour": 6,
