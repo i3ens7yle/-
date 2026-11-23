@@ -63,6 +63,9 @@
   .tile.pending { border-color: var(--bad); }
   .tile.call { border-color: var(--warn); background: var(--warn-soft); }
   .tile.empty-t { opacity: 0.6; }
+  .tile.closed-t { opacity: 0.55; border-style: dashed; }
+  .tile.open-t { border-color: var(--good); }
+  .open-big { width: 100%; font-size: 20px; min-height: 60px; margin-top: 6px; }
 
   .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; }
   .menu-row.off { opacity: 0.6; }
@@ -186,9 +189,10 @@ function render() {
     </div>`;
   } else if (tab === "tables") {
     body = `<div class="grid">${S.tables.map((t) => {
-      const cls = t.call ? "call" : t.pending ? "pending" : t.orders ? "active" : "empty-t";
-      const sub = t.call ? (t.call.type === "bill" ? "💵 ขอเช็คบิล" : "🔔 เรียกพนักงาน")
-        : t.orders ? `${t.orders} ออร์เดอร์${t.pending ? ` · รอ ${t.pending}` : ""}<br>นั่งมา ${ago(t.since)}` : "ว่าง";
+      const cls = t.call ? "call" : t.pending ? "pending" : t.orders ? "active" : !t.open ? "closed-t" : S.requireOpenTable ? "open-t" : "empty-t";
+      const sub = t.call ? (t.call.type === "bill" ? "💵 ขอเช็คบิล" : t.open ? "🔔 เรียกพนักงาน" : "🔔 เรียกให้เปิดโต๊ะ")
+        : t.orders ? `${t.orders} ออร์เดอร์${t.pending ? ` · รอ ${t.pending}` : ""}<br>นั่งมา ${ago(t.since)}`
+        : !t.open ? "🔒 ปิดอยู่" : S.requireOpenTable ? `เปิดแล้ว ยังไม่สั่ง<br>${ago(t.since)}` : "ว่าง";
       return `<button class="tile ${cls}" data-table="${t.table}"><span class="n">โต๊ะ ${t.table}</span><span class="sub">${sub}</span>${t.orders ? `<span class="amt price">${baht(t.total)}</span>` : ""}</button>`;
     }).join("")}</div>`;
   } else {
@@ -211,7 +215,7 @@ function render() {
     </header>
     ${calls.length ? `<div class="alerts">${calls.map((t) => `
       <div class="alert ${t.call.type}"><span>${t.call.type === "bill" ? "💵" : "🔔"} โต๊ะ ${t.table} ${t.call.type === "bill" ? "ขอเช็คบิล" : "เรียกพนักงาน"} · ${ago(t.call.at)}</span>
-      <span style="display:flex;gap:6px">${t.call.type === "bill" ? `<button class="btn" data-table="${t.table}">ดูบิล</button>` : ""}<button class="btn" data-clear="${t.table}">รับทราบ</button></span></div>`).join("")}</div>` : ""}
+      <span style="display:flex;gap:6px">${t.call.type === "bill" ? `<button class="btn" data-table="${t.table}">ดูบิล</button>` : ""}${t.open ? "" : `<button class="btn btn-good" data-opentable="${t.table}">เปิดโต๊ะ</button>`}<button class="btn" data-clear="${t.table}">รับทราบ</button></span></div>`).join("")}</div>` : ""}
     <div class="tabs">
       <button data-tab="orders" class="${tab === "orders" ? "on" : ""}">ออร์เดอร์${newCount ? `<span class="count">${newCount}</span>` : ""}</button>
       <button data-tab="tables" class="${tab === "tables" ? "on" : ""}">ดูตามโต๊ะ</button>
@@ -232,6 +236,14 @@ function renderTable(n) {
   }
   const total = live.reduce((s, o) => s + o.total, 0);
   const t = S.tables.find((x) => x.table === n);
+  if (t && !t.open) {
+    document.getElementById("tableBody").innerHTML = `
+      <h2><span>โต๊ะ ${n} <span class="stat">· ปิดอยู่</span></span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
+      <p style="color:var(--muted);margin:0 0 12px">ลูกค้านั่งที่โต๊ะนี้แล้วใช่ไหม? กดเปิดโต๊ะ ลูกค้าถึงจะสแกน QR สั่งอาหารได้ พอปิดบิล โต๊ะจะปิดเองอัตโนมัติ</p>
+      <button class="btn btn-good open-big" data-opentable="${n}">🔓 เปิดโต๊ะ ${n}</button>`;
+    document.getElementById("tableSheet").classList.add("open");
+    return;
+  }
   document.getElementById("tableBody").innerHTML = `
     <h2><span>โต๊ะ ${n}${t && t.since ? ` <span class="stat">· เริ่ม ${hhmm(t.since)}</span>` : ""}</span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
     ${sum.size ? `<table class="sum"><tbody>${[...sum.values()].map((r) => `<tr><td>${esc(r.name)}</td><td>${r.qty} × ${baht(r.price)}</td><td class="price">${baht(r.qty * r.price)}</td></tr>`).join("")}</tbody></table>`
@@ -240,7 +252,7 @@ function renderTable(n) {
     ${orders.length ? `<details><summary>ดูแยกทีละออร์เดอร์ (${orders.length})</summary>${orders.map((o) => `
       <div style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><b>#${o.no} · ${hhmm(o.createdAt)}</b><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
       ${o.items.map((l) => `${esc(l.name)} × ${l.qty}`).join(", ")}${o.note ? `<div class="stat">📝 ${esc(o.note)}</div>` : ""}</div>`).join("")}</details>` : ""}
-    <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && t.call) ? "" : "disabled"}>รับเงินแล้ว · ปิดบิล / เคลียร์โต๊ะ</button>`;
+    <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && (t.call || (S.requireOpenTable && t.open))) ? "" : "disabled"}>${orders.length ? "รับเงินแล้ว · ปิดบิล / ปิดโต๊ะ" : "ปิดโต๊ะ (ลูกค้ากลับแล้ว)"}</button>`;
   document.getElementById("tableSheet").classList.add("open");
 }
 function closeTableSheet() { openTable = null; document.getElementById("tableSheet").classList.remove("open"); }
@@ -259,6 +271,13 @@ document.addEventListener("click", async (e) => {
       await api(`/api/staff/order/${b.dataset.id}/status`, { status: b.dataset.st });
       return load();
     }
+    if (b.dataset.opentable) {
+      const n = Number(b.dataset.opentable);
+      await api(`/api/staff/table/${n}/open`, {});
+      toast(`เปิดโต๊ะ ${n} แล้ว ลูกค้าสั่งได้เลย`);
+      if (openTable === n) openTable = null, document.getElementById("tableSheet").classList.remove("open");
+      return load();
+    }
     if (b.dataset.clear) { await api(`/api/staff/call/${b.dataset.clear}/clear`, {}); return load(); }
     if (b.dataset.sold) {
       const item = MENU.items.find((i) => i.id === b.dataset.sold);
@@ -268,7 +287,7 @@ document.addEventListener("click", async (e) => {
     }
     if (b.dataset.closebill) {
       const n = Number(b.dataset.closebill);
-      if (!confirm(`ยืนยันปิดบิลโต๊ะ ${n}? รายการทั้งหมดจะถูกเคลียร์ เพื่อรับลูกค้าใหม่`)) return;
+      if (!confirm(`ยืนยันปิดโต๊ะ ${n}? รายการทั้งหมดจะถูกเคลียร์ และโต๊ะจะปิด รอเปิดให้ลูกค้าคนใหม่`)) return;
       const r = await api(`/api/staff/table/${n}/close`, {});
       closeTableSheet(); toast(`ปิดบิลโต๊ะ ${n} แล้ว ${baht(r.total)}`);
       return load();

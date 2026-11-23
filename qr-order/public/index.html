@@ -67,6 +67,7 @@
   .empty { text-align: center; color: var(--muted); padding: 24px 0; }
   .blocker { max-width: 420px; margin: 18vh auto 0; padding: 24px; text-align: center; }
   .blocker .big { font-size: 56px; }
+  .closed-note { max-width: 640px; margin: 12px auto 0; background: var(--warn-soft); color: var(--warn); border-radius: 14px; padding: 12px 14px; font-weight: 600; text-align: center; }
   .call-state { text-align: center; background: var(--warn-soft); color: var(--warn); border-radius: 12px; padding: 8px; font-weight: 600; }
 </style>
 </head>
@@ -98,7 +99,7 @@ const baht = (n) => "฿" + Number(n).toLocaleString("th-TH");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STATUS = { new: "รอร้านรับ", cooking: "กำลังทำ", served: "เสิร์ฟแล้ว", cancelled: "ยกเลิก" };
 
-let MENU = null, TABLE_STATE = { orders: [], total: 0, call: null };
+let MENU = null, TABLE_STATE = { open: true, orders: [], total: 0, call: null };
 let cart = {};
 try { cart = JSON.parse(localStorage.getItem(CART_KEY) || "{}") || {}; } catch {}
 const saveCart = () => { try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch {} };
@@ -152,7 +153,8 @@ function render() {
   const call = TABLE_STATE.call;
   const scrollY = window.scrollY;
   app.innerHTML = `
-    <header class="top">${MENU.logo ? `<img class="logo" src="${esc(MENU.logo)}" alt="โลโก้ร้าน ${esc(MENU.shopName)}" width="150" height="150">` : ""}<h1>${esc(MENU.shopName)}</h1>${MENU.tagline ? `<div class="tagline">${esc(MENU.tagline)}</div>` : ""}<span class="table-pill">โต๊ะ ${TABLE}</span></header>
+    <header class="top">${MENU.logo ? `<img class="logo" src="${esc(MENU.logo)}" alt="โลโก้ร้าน ${esc(MENU.shopName)}" width="150" height="150">` : ""}<h1>${esc(MENU.shopName)}</h1>${MENU.tagline ? `<div class="tagline">${esc(MENU.tagline)}</div>` : ""}<span class="table-pill">โต๊ะ ${TABLE}</span>
+      ${TABLE_STATE.open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>ดูเมนูและเลือกใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}</header>
     <nav class="cats">${MENU.categories.map((c, ix) => `<button data-cat="${esc(c.id)}"${ix === 0 ? ' class="on"' : ""}>${esc(c.name)}</button>`).join("")}</nav>
     <main>${sections}</main>
     <div class="bar"><div class="bar-inner">
@@ -161,7 +163,7 @@ function render() {
       <div class="row">
         <button class="btn" id="openOrders">สั่งแล้ว<br><b class="price">${baht(TABLE_STATE.total)}</b></button>
         <button class="btn" id="callStaff">เรียก<br>พนักงาน</button>
-        <button class="btn" id="callBill">ขอ<br>เช็คบิล</button>
+        <button class="btn" id="callBill"${TABLE_STATE.open ? "" : " disabled"}>ขอ<br>เช็คบิล</button>
       </div>
     </div></div>`;
   window.scrollTo(0, scrollY);
@@ -175,7 +177,9 @@ function renderCart() {
   }).join("");
   document.getElementById("cartLines").innerHTML = lines || `<div class="empty">ยังไม่มีรายการในตะกร้า</div>`;
   document.getElementById("cartTotal").textContent = baht(cartTotal());
-  document.getElementById("submitOrder").disabled = !cartCount();
+  const sb = document.getElementById("submitOrder");
+  sb.disabled = !cartCount() || !TABLE_STATE.open;
+  sb.textContent = TABLE_STATE.open ? "ยืนยันสั่งอาหาร" : "รอพนักงานเปิดโต๊ะก่อน";
   if (!cartCount()) closeSheet("cartSheet");
 }
 
@@ -225,15 +229,20 @@ document.addEventListener("click", async (e) => {
     } catch (err) {
       toast(err.message);
       if (/หมด/.test(err.message)) await loadMenu();
-    } finally { b.disabled = false; b.textContent = "ยืนยันสั่งอาหาร"; }
+      await refreshTable().catch(() => {});
+    } finally { renderCart(); }
   }
 });
 document.querySelectorAll(".sheet-bg").forEach((bg) => bg.addEventListener("click", (e) => { if (e.target === bg) bg.classList.remove("open"); }));
 
 async function loadMenu() { MENU = await api("/api/menu"); render(); }
 async function refreshTable() {
+  const wasOpen = TABLE_STATE.open;
   TABLE_STATE = await api(`/api/table/${TABLE}?k=${encodeURIComponent(KEY)}`);
+  if (refreshTable.loaded && !wasOpen && TABLE_STATE.open) toast("เปิดโต๊ะแล้ว สั่งได้เลยจ้า");
+  refreshTable.loaded = true;
   render();
+  if (document.getElementById("cartSheet").classList.contains("open")) renderCart();
   if (document.getElementById("ordersSheet").classList.contains("open")) renderOrders();
 }
 

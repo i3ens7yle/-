@@ -31,6 +31,8 @@ function config() {
     tagline: c.tagline || "",
     logo: c.logo || "",
     tables: Math.max(1, Math.min(200, Number(c.tables) || 20)),
+    // true = ลูกค้าสั่งได้เฉพาะโต๊ะที่พนักงานกด "เปิดโต๊ะ" แล้ว (กันคนถ่ายรูป QR ไปสั่งเล่นจากนอกร้าน)
+    requireOpenTable: c.requireOpenTable !== false,
     staffPin: String(process.env.STAFF_PIN || c.staffPin || "1234"),
     publicUrl: (process.env.PUBLIC_URL || c.publicUrl || "").replace(/\/+$/, ""),
   };
@@ -60,7 +62,7 @@ function tableOk(table, key) {
 
 // ---------- ข้อมูลออร์เดอร์ (เก็บลงไฟล์ data/state.json) ----------
 const state = Object.assign(
-  { nextNo: 1, orders: [], calls: {}, soldOut: [], bills: [] },
+  { nextNo: 1, orders: [], calls: {}, soldOut: [], bills: [], openTables: {} },
   readJson(STATE_FILE, {})
 );
 let saveTimer = null;
@@ -81,6 +83,9 @@ function tableTotal(table) {
   return openOrders(table)
     .filter((o) => o.status !== "cancelled")
     .reduce((s, o) => s + o.total, 0);
+}
+function isOpen(t) {
+  return !config().requireOpenTable || !!state.openTables[t];
 }
 function today() {
   const d = bangkokDate(Date.now());
@@ -130,7 +135,7 @@ app.get("/api/menu", (req, res) => {
 app.get("/api/table/:t", (req, res) => {
   const t = Number(req.params.t);
   if (!tableOk(t, req.query.k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
-  res.json({ table: t, orders: openOrders(t), total: tableTotal(t), call: state.calls[t] || null });
+  res.json({ table: t, open: isOpen(t), orders: openOrders(t), total: tableTotal(t), call: state.calls[t] || null });
 });
 
 const lastOrderAt = new Map();
@@ -138,6 +143,7 @@ app.post("/api/order", (req, res) => {
   const { table, k, items, note } = req.body || {};
   const t = Number(table);
   if (!tableOk(t, k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
+  if (!isOpen(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด กรุณาเรียกพนักงานเพื่อเปิดโต๊ะก่อน" });
   if (Date.now() - (lastOrderAt.get(t) || 0) < 3000)
     return res.status(429).json({ error: "สั่งถี่เกินไป รอสักครู่แล้วลองใหม่" });
 
@@ -178,6 +184,9 @@ app.post("/api/call", (req, res) => {
   const t = Number(table);
   if (!tableOk(t, k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง" });
   if (!["staff", "bill"].includes(type)) return res.status(400).json({ error: "type ไม่ถูกต้อง" });
+  if (type === "bill" && !isOpen(t)) return res.status(403).json({ error: "โต๊ะนี้ยังไม่เปิด" });
+  const prev = state.calls[t];
+  if (prev && Date.now() - prev.at < 10000) return res.json({ ok: true }); // กันกดรัว
   state.calls[t] = { type, at: Date.now() };
   save();
   broadcast(t);
@@ -206,16 +215,19 @@ app.get("/api/staff/state", staffOnly, (req, res) => {
   const tables = [];
   for (let t = 1; t <= c.tables; t++) {
     const os_ = openOrders(t);
+    const opened = state.openTables[t];
     tables.push({
       table: t,
+      open: isOpen(t),
+      openedAt: opened ? opened.openedAt : null,
       orders: os_.length,
       total: tableTotal(t),
       pending: os_.filter((o) => o.status === "new" || o.status === "cooking").length,
-      since: os_.length ? os_[0].createdAt : null,
+      since: opened ? opened.openedAt : os_.length ? os_[0].createdAt : null,
       call: state.calls[t] || null,
     });
   }
-  res.json({ shopName: c.shopName, orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
+  res.json({ shopName: c.shopName, requireOpenTable: c.requireOpenTable, orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
 });
 
 app.post("/api/staff/order/:id/status", staffOnly, (req, res) => {
@@ -230,10 +242,20 @@ app.post("/api/staff/order/:id/status", staffOnly, (req, res) => {
   res.json(o);
 });
 
+app.post("/api/staff/table/:t/open", staffOnly, (req, res) => {
+  const t = Number(req.params.t);
+  if (!Number.isInteger(t) || t < 1 || t > config().tables) return res.status(404).json({ error: "ไม่พบโต๊ะ" });
+  if (!state.openTables[t]) state.openTables[t] = { openedAt: Date.now() };
+  if (state.calls[t] && state.calls[t].type === "staff") delete state.calls[t];
+  save();
+  broadcast(t);
+  res.json({ ok: true });
+});
+
 app.post("/api/staff/table/:t/close", staffOnly, (req, res) => {
   const t = Number(req.params.t);
   const list = openOrders(t);
-  if (!list.length && !state.calls[t]) return res.status(400).json({ error: "โต๊ะนี้ไม่มีบิลค้าง" });
+  if (!list.length && !state.calls[t] && !state.openTables[t]) return res.status(400).json({ error: "โต๊ะนี้ไม่มีบิลค้าง" });
   const total = tableTotal(t);
   const now = Date.now();
   for (const o of list) {
@@ -242,6 +264,7 @@ app.post("/api/staff/table/:t/close", staffOnly, (req, res) => {
   }
   if (list.length) state.bills.push({ table: t, total, orders: list.map((o) => o.no), closedAt: now });
   delete state.calls[t];
+  delete state.openTables[t];
   // เก็บประวัติออร์เดอร์ไว้ 7 วันพอ ไฟล์จะได้ไม่โตเรื่อยๆ
   const cutoff = now - 7 * 864e5;
   state.orders = state.orders.filter((o) => !o.billed || o.billedAt > cutoff);
