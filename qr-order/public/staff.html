@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>หน้าจอพนักงาน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .login { max-width: 340px; margin: 16vh auto 0; padding: 24px 16px; text-align: center; }
+  .login input { width: 100%; font-size: 28px; text-align: center; letter-spacing: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); margin: 12px 0; }
+  header.top {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card);
+  }
+  header.top h1 { margin: 0; font-size: 20px; }
+  .stat { color: var(--muted); font-size: 14px; }
+  .stat b { color: var(--ink); font-size: 18px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tools .btn { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+  .tabs { display: flex; gap: 6px; padding: 12px 16px 0; overflow-x: auto; }
+  .tabs button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 16px; font-weight: 600; white-space: nowrap; min-height: 42px; }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .count { display: inline-block; min-width: 22px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 13px; text-align: center; }
+  main { padding: 12px 16px 40px; }
+
+  .alerts { display: grid; gap: 8px; padding: 12px 16px 0; }
+  .alert { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 12px; padding: 10px 14px; font-weight: 600; animation: pulse 1.4s ease-in-out infinite; }
+  .alert.staff { background: var(--warn-soft); color: var(--warn); }
+  .alert.bill { background: var(--good-soft); color: var(--good); }
+  .alert .btn { min-height: 38px; padding: 6px 12px; font-size: 14px; }
+  @keyframes pulse { 50% { opacity: 0.75; } }
+
+  .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+  .col h2 { font-size: 16px; margin: 4px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .order { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 10px; border-left: 5px solid var(--line); }
+  .order.new { border-left-color: var(--bad); }
+  .order.cooking { border-left-color: var(--warn); }
+  .order.served { border-left-color: var(--good); opacity: 0.85; }
+  .order .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .order .tno { font-size: 20px; font-weight: 700; }
+  .order .meta { color: var(--muted); font-size: 13px; }
+  .order ul { margin: 8px 0; padding: 0; list-style: none; }
+  .order li { display: flex; gap: 8px; font-size: 17px; padding: 2px 0; }
+  .order li .q { font-weight: 700; min-width: 34px; color: var(--accent); }
+  .order .note { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 6px 10px; font-weight: 600; margin: 6px 0; }
+  .order .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .order .acts .btn { flex: 1; min-height: 44px; }
+  .order .acts .btn-ghost { flex: 0 0 auto; }
+  .empty { color: var(--muted); padding: 16px 4px; }
+
+  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .tile { background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 12px; text-align: left; min-height: 104px; display: flex; flex-direction: column; gap: 2px; }
+  .tile .n { font-size: 22px; font-weight: 700; }
+  .tile .sub { font-size: 13px; color: var(--muted); }
+  .tile .amt { font-weight: 700; font-size: 17px; margin-top: auto; }
+  .tile.active { border-color: var(--accent); }
+  .tile.pending { border-color: var(--bad); }
+  .tile.call { border-color: var(--warn); background: var(--warn-soft); }
+  .tile.empty-t { opacity: 0.6; }
+
+  .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; }
+  .menu-row.off { opacity: 0.6; }
+  .switch { position: relative; width: 56px; height: 32px; border-radius: 999px; border: 0; background: var(--good); flex: none; }
+  .switch::after { content: ""; position: absolute; top: 4px; left: 28px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+  .switch.off { background: var(--bad); }
+  .switch.off::after { left: 4px; }
+
+  .sum { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .sum td { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .sum td:last-child, .sum td:nth-child(2) { text-align: right; }
+  .total-row { display: flex; justify-content: space-between; font-size: 22px; font-weight: 700; padding: 12px 0; }
+  details { margin: 8px 0 14px; }
+  details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<div class="sheet-bg" id="tableSheet"><div class="sheet" role="dialog" aria-modal="true" id="tableBody"></div></div>
+
+<script>
+const baht = (n) => "฿" + Number(n).toLocaleString("th-TH");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ago = (ts) => { const m = Math.floor((Date.now() - ts) / 60000); return m < 1 ? "เมื่อกี้" : m < 60 ? m + " นาทีที่แล้ว" : Math.floor(m / 60) + " ชม. " + (m % 60) + " นาที"; };
+const hhmm = (ts) => new Date(ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น.";
+const STATUS = { new: "ใหม่", cooking: "กำลังทำ", served: "เสิร์ฟแล้ว", cancelled: "ยกเลิก" };
+
+let PIN = ""; try { PIN = localStorage.getItem("staffPin") || ""; } catch {}
+let tab = "orders"; try { tab = localStorage.getItem("staffTab") || "orders"; } catch {}
+let sound = true; try { sound = localStorage.getItem("staffSound") !== "off"; } catch {}
+let S = null, MENU = null, openTable = null, knownIds = null, es = null, audioCtx = null;
+
+function toast(msg) {
+  const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", "x-staff-pin": PIN }, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { logout(); throw new Error("PIN ไม่ถูกต้อง"); }
+  if (!r.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
+  return data;
+}
+function beep() {
+  if (!sound) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.22, 0.44].forEach((d, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = i === 2 ? 1175 : 880; o.connect(g); g.connect(audioCtx.destination);
+      const t = audioCtx.currentTime + d; g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.start(t); o.stop(t + 0.2);
+    });
+  } catch {}
+}
+
+function loginView(err) {
+  document.getElementById("app").innerHTML = `
+    <form class="login" id="loginForm">
+      <h1 style="margin:0 0 4px">หน้าจอพนักงาน</h1>
+      <p style="color:var(--muted);margin:0">ใส่ PIN ของร้าน</p>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off" aria-label="PIN" autofocus>
+      ${err ? `<p style="color:var(--bad);margin:0 0 10px">${esc(err)}</p>` : ""}
+      <button class="btn btn-primary" style="width:100%">เข้าสู่ระบบ</button>
+    </form>`;
+  document.getElementById("loginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    PIN = document.getElementById("pin").value.trim();
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+    try { await load(); try { localStorage.setItem("staffPin", PIN); } catch {} connect(); }
+    catch (err) { loginView(err.message); }
+  };
+}
+function logout() {
+  PIN = ""; try { localStorage.removeItem("staffPin"); } catch {}
+  if (es) es.close(); es = null; loginView();
+}
+
+async function load() {
+  const [s, m] = await Promise.all([api("/api/staff/state"), api("/api/menu")]);
+  const newIds = s.orders.filter((o) => o.status === "new").map((o) => o.id);
+  const calls = s.tables.filter((t) => t.call).map((t) => t.table + t.call.type + t.call.at);
+  if (knownIds && (newIds.some((id) => !knownIds.orders.has(id)) || calls.some((c) => !knownIds.calls.has(c)))) beep();
+  knownIds = { orders: new Set(newIds), calls: new Set(calls) };
+  S = s; MENU = m; render();
+}
+function connect() {
+  if (es) es.close();
+  es = new EventSource(`/api/stream?pin=${encodeURIComponent(PIN)}`);
+  let t; es.onmessage = () => { clearTimeout(t); t = setTimeout(() => load().catch(() => {}), 120); };
+  es.onopen = () => load().catch(() => {}); // โหลดใหม่หลังเน็ตหลุดแล้วต่อกลับ
+}
+
+function orderCard(o) {
+  const acts = {
+    new: `<button class="btn btn-primary" data-st="cooking" data-id="${o.id}">รับออร์เดอร์</button><button class="btn btn-ghost btn-danger" data-st="cancelled" data-id="${o.id}">ยกเลิก</button>`,
+    cooking: `<button class="btn btn-good" data-st="served" data-id="${o.id}">เสิร์ฟแล้ว</button><button class="btn btn-ghost btn-danger" data-st="cancelled" data-id="${o.id}">ยกเลิก</button>`,
+    served: `<button class="btn btn-ghost" data-st="cooking" data-id="${o.id}">↩ ย้อนกลับ</button>`,
+  }[o.status] || "";
+  return `<div class="order ${o.status}">
+    <div class="head"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no} · ${hhmm(o.createdAt)} · ${ago(o.createdAt)}</span></div>
+    <ul>${o.items.map((l) => `<li><span class="q">${l.qty}×</span><span>${esc(l.name)}</span></li>`).join("")}</ul>
+    ${o.note ? `<div class="note">📝 ${esc(o.note)}</div>` : ""}
+    <div class="acts">${acts}</div></div>`;
+}
+
+function render() {
+  if (!S) return;
+  const newCount = S.orders.filter((o) => o.status === "new").length;
+  document.title = (newCount ? `(${newCount}) ` : "") + "หน้าจอพนักงาน · " + S.shopName;
+  const calls = S.tables.filter((t) => t.call).sort((a, b) => a.call.at - b.call.at);
+  let body = "";
+  if (tab === "orders") {
+    const col = (st, title, list) => `<div class="col"><h2><span class="badge s-${st}">${title}</span> ${list.length}</h2>${list.map(orderCard).join("") || `<div class="empty">ไม่มี</div>`}</div>`;
+    const by = (st) => S.orders.filter((o) => o.status === st);
+    body = `<div class="cols">
+      ${col("new", "ใหม่ รอรับ", by("new"))}
+      ${col("cooking", "กำลังทำ", by("cooking"))}
+      ${col("served", "เสิร์ฟแล้ว (ล่าสุด)", by("served").slice(-12).reverse())}
+    </div>`;
+  } else if (tab === "tables") {
+    body = `<div class="grid">${S.tables.map((t) => {
+      const cls = t.call ? "call" : t.pending ? "pending" : t.orders ? "active" : "empty-t";
+      const sub = t.call ? (t.call.type === "bill" ? "💵 ขอเช็คบิล" : "🔔 เรียกพนักงาน")
+        : t.orders ? `${t.orders} ออร์เดอร์${t.pending ? ` · รอ ${t.pending}` : ""}<br>นั่งมา ${ago(t.since)}` : "ว่าง";
+      return `<button class="tile ${cls}" data-table="${t.table}"><span class="n">โต๊ะ ${t.table}</span><span class="sub">${sub}</span>${t.orders ? `<span class="amt price">${baht(t.total)}</span>` : ""}</button>`;
+    }).join("")}</div>`;
+  } else {
+    body = `<p style="color:var(--muted);margin-top:0">กดปิดเมื่อของหมด ลูกค้าจะเห็นคำว่า "หมด" และสั่งไม่ได้ทันที</p>` +
+      MENU.categories.map((c) => {
+        const items = MENU.items.filter((i) => i.cat === c.id); if (!items.length) return "";
+        return `<h3 style="margin:18px 0 8px">${esc(c.name)}</h3>` + items.map((i) => `
+          <div class="menu-row${i.soldOut ? " off" : ""}"><span><b>${esc(i.name)}</b> <span class="price" style="color:var(--muted)">${baht(i.price)}</span>${i.soldOut ? ` <span class="badge s-new">หมด</span>` : ""}</span>
+          <button class="switch${i.soldOut ? " off" : ""}" data-sold="${esc(i.id)}" aria-label="${i.soldOut ? "เปิดขาย" : "ปิด (หมด)"} ${esc(i.name)}" aria-pressed="${!i.soldOut}"></button></div>`).join("");
+      }).join("");
+  }
+  document.getElementById("app").innerHTML = `
+    <header class="top">
+      <div><h1>${esc(S.shopName)}</h1><div class="stat">ยอดปิดบิลวันนี้ <b class="price">${baht(S.today.sales)}</b> · ${S.today.bills} บิล</div></div>
+      <div class="tools">
+        <button class="btn" id="soundBtn">${sound ? "🔔 เสียงเปิด" : "🔕 เสียงปิด"}</button>
+        <a class="btn" href="/qr" target="_blank" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">พิมพ์ QR โต๊ะ</a>
+        <button class="btn btn-ghost" id="logoutBtn">ออก</button>
+      </div>
+    </header>
+    ${calls.length ? `<div class="alerts">${calls.map((t) => `
+      <div class="alert ${t.call.type}"><span>${t.call.type === "bill" ? "💵" : "🔔"} โต๊ะ ${t.table} ${t.call.type === "bill" ? "ขอเช็คบิล" : "เรียกพนักงาน"} · ${ago(t.call.at)}</span>
+      <span style="display:flex;gap:6px">${t.call.type === "bill" ? `<button class="btn" data-table="${t.table}">ดูบิล</button>` : ""}<button class="btn" data-clear="${t.table}">รับทราบ</button></span></div>`).join("")}</div>` : ""}
+    <div class="tabs">
+      <button data-tab="orders" class="${tab === "orders" ? "on" : ""}">ออร์เดอร์${newCount ? `<span class="count">${newCount}</span>` : ""}</button>
+      <button data-tab="tables" class="${tab === "tables" ? "on" : ""}">ดูตามโต๊ะ</button>
+      <button data-tab="menu" class="${tab === "menu" ? "on" : ""}">เมนูหมด</button>
+    </div>
+    <main>${body}</main>`;
+  if (openTable) renderTable(openTable);
+}
+
+function renderTable(n) {
+  openTable = n;
+  const orders = S.orders.filter((o) => o.table === n);
+  const live = orders.filter((o) => o.status !== "cancelled");
+  const sum = new Map();
+  for (const o of live) for (const l of o.items) {
+    const k = l.id + "@" + l.price; const r = sum.get(k) || { name: l.name, price: l.price, qty: 0 };
+    r.qty += l.qty; sum.set(k, r);
+  }
+  const total = live.reduce((s, o) => s + o.total, 0);
+  const t = S.tables.find((x) => x.table === n);
+  document.getElementById("tableBody").innerHTML = `
+    <h2><span>โต๊ะ ${n}${t && t.since ? ` <span class="stat">· เริ่ม ${hhmm(t.since)}</span>` : ""}</span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
+    ${sum.size ? `<table class="sum"><tbody>${[...sum.values()].map((r) => `<tr><td>${esc(r.name)}</td><td>${r.qty} × ${baht(r.price)}</td><td class="price">${baht(r.qty * r.price)}</td></tr>`).join("")}</tbody></table>`
+      : `<div class="empty">โต๊ะนี้ยังไม่มีรายการ</div>`}
+    <div class="total-row"><span>ยอดรวม</span><span class="price">${baht(total)}</span></div>
+    ${orders.length ? `<details><summary>ดูแยกทีละออร์เดอร์ (${orders.length})</summary>${orders.map((o) => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><b>#${o.no} · ${hhmm(o.createdAt)}</b><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
+      ${o.items.map((l) => `${esc(l.name)} × ${l.qty}`).join(", ")}${o.note ? `<div class="stat">📝 ${esc(o.note)}</div>` : ""}</div>`).join("")}</details>` : ""}
+    <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && t.call) ? "" : "disabled"}>รับเงินแล้ว · ปิดบิล / เคลียร์โต๊ะ</button>`;
+  document.getElementById("tableSheet").classList.add("open");
+}
+function closeTableSheet() { openTable = null; document.getElementById("tableSheet").classList.remove("open"); }
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.tab) { tab = b.dataset.tab; try { localStorage.setItem("staffTab", tab); } catch {} return render(); }
+    if (b.id === "soundBtn") { sound = !sound; try { localStorage.setItem("staffSound", sound ? "on" : "off"); } catch {} if (sound) beep(); return render(); }
+    if (b.id === "logoutBtn") return logout();
+    if (b.dataset.table) return renderTable(Number(b.dataset.table));
+    if (b.hasAttribute("data-closesheet")) return closeTableSheet();
+    if (b.dataset.st) {
+      if (b.dataset.st === "cancelled" && !confirm("ยกเลิกออร์เดอร์นี้?")) return;
+      b.disabled = true;
+      await api(`/api/staff/order/${b.dataset.id}/status`, { status: b.dataset.st });
+      return load();
+    }
+    if (b.dataset.clear) { await api(`/api/staff/call/${b.dataset.clear}/clear`, {}); return load(); }
+    if (b.dataset.sold) {
+      const item = MENU.items.find((i) => i.id === b.dataset.sold);
+      await api("/api/staff/soldout", { id: item.id, soldOut: !item.soldOut });
+      toast(item.soldOut ? `เปิดขาย "${item.name}" แล้ว` : `ปิด "${item.name}" (หมด) แล้ว`);
+      return load();
+    }
+    if (b.dataset.closebill) {
+      const n = Number(b.dataset.closebill);
+      if (!confirm(`ยืนยันปิดบิลโต๊ะ ${n}? รายการทั้งหมดจะถูกเคลียร์ เพื่อรับลูกค้าใหม่`)) return;
+      const r = await api(`/api/staff/table/${n}/close`, {});
+      closeTableSheet(); toast(`ปิดบิลโต๊ะ ${n} แล้ว ${baht(r.total)}`);
+      return load();
+    }
+  } catch (err) { toast(err.message); b.disabled = false; }
+});
+document.getElementById("tableSheet").addEventListener("click", (e) => { if (e.target.id === "tableSheet") closeTableSheet(); });
+setInterval(() => { if (S && !openTable) render(); }, 30000); // อัปเดต "กี่นาทีที่แล้ว"
+
+(async () => {
+  if (!PIN) return loginView();
+  try { await load(); connect(); } catch (err) { loginView(err.message === "PIN ไม่ถูกต้อง" ? "" : err.message); }
+})();
+</script>
+</body>
+</html>

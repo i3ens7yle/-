@@ -1,0 +1,25 @@
+{
+  "categories": [
+    { "id": "yum", "name": "ยำ / แซ่บ" },
+    { "id": "fried", "name": "ของทอด / กับแกล้ม" },
+    { "id": "grill", "name": "ปิ้งย่าง" },
+    { "id": "rice", "name": "อาหารจานเดียว" },
+    { "id": "drink", "name": "เครื่องดื่ม" }
+  ],
+  "items": [
+    { "id": "yum-woonsen", "cat": "yum", "name": "ยำวุ้นเส้น", "price": 70 },
+    { "id": "somtam", "cat": "yum", "name": "ส้มตำ", "price": 50 },
+    { "id": "wings", "cat": "fried", "name": "ปีกไก่ทอด", "price": 69 },
+    { "id": "fries", "cat": "fried", "name": "เฟรนช์ฟรายส์", "price": 49 },
+    { "id": "sausage", "cat": "fried", "name": "ไส้กรอกทอด", "price": 59 },
+    { "id": "gyoza", "cat": "fried", "name": "เกี๊ยวซ่าทอด", "price": 59 },
+    { "id": "moo-ping", "cat": "grill", "name": "หมูปิ้ง", "desc": "ราคาต่อไม้", "price": 10 },
+    { "id": "kaprao", "cat": "rice", "name": "ข้าวกะเพราไข่ดาว", "price": 59 },
+    { "id": "garlic-rice", "cat": "rice", "name": "ข้าวผัดกระเทียม", "price": 59 },
+    { "id": "omelet", "cat": "rice", "name": "ไข่เจียวหมูสับ", "price": 49 },
+    { "id": "beer-big", "cat": "drink", "name": "เบียร์ขวดใหญ่", "desc": "ราคาตัวอย่าง แก้ตามจริง", "price": 90 },
+    { "id": "ice", "cat": "drink", "name": "น้ำแข็งถัง", "price": 20 },
+    { "id": "soda", "cat": "drink", "name": "โซดา", "price": 15 },
+    { "id": "water", "cat": "drink", "name": "น้ำเปล่า", "price": 15 }
+  ]
+}
