@@ -174,7 +174,7 @@ textarea { width: 100%; border: 1px solid var(--line); background: var(--card); 
 .order .acts { display: flex; gap: 6px; margin-top: 6px; }
 .order .acts .btn { flex: 1; min-height: 40px; padding: 6px 8px; }
 .order .acts .btn-ghost { flex: 0 0 auto; }
-.grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 .tile { background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: 10px; text-align: left; min-height: 92px; display: flex; flex-direction: column; gap: 2px; }
 .tile .n { font-size: 19px; font-weight: 700; }
 .tile .sub { font-size: 12px; color: var(--muted); }
@@ -184,6 +184,16 @@ textarea { width: 100%; border: 1px solid var(--line); background: var(--card); 
 .tile.active { border-color: var(--accent); }
 .tile.pending { border-color: var(--bad); }
 .tile.call { border-color: var(--warn); background: var(--warn-soft); }
+.tile:disabled { cursor: default; }
+.tile.pick-src { box-shadow: 0 0 0 3px var(--accent); border-color: var(--accent); }
+.tile.pick-dst { box-shadow: 0 0 0 3px var(--good); border-color: var(--good); }
+.tile .pick-tag { font-size: 12px; font-weight: 700; color: var(--accent); }
+.move-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 10px 12px; border-radius: 12px; background: var(--bg); }
+.move-bar.on { background: var(--accent-soft); color: var(--ink); }
+.move-bar .step { font-weight: 600; }
+.move-bar .step small { display: block; font-weight: 400; color: var(--muted); }
+.move-bar .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.move-bar .btn { min-height: 40px; padding: 6px 12px; }
 .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; }
 .menu-row.off { opacity: .6; }
 .switch { position: relative; width: 52px; height: 30px; border-radius: 999px; border: 0; background: var(--good); flex: none; }
@@ -296,7 +306,7 @@ function seed() {
   ].map(([table, its, ago]) => { const items = its.map(([id, q]) => line(id, q)); const b = bill(items.reduce((s, l) => s + l.price * l.qty, 0)); return { table, items, ...b, closedAt: t - ago * m }; });
   return {
     shift: 0, nextNo: 3, soldOut: ["gyoza"], snooze: {},
-    open: { 3: t - 38 * m, 5: t - 2 * m, 8: t - 55 * m },
+    open: { 3: t - 38 * m, 5: t - 2 * m, 8: t - 55 * m }, moved: {},
     calls: { 12: { type: "staff", at: t - 1 * m } },
     orders: [
       { id: "o1", no: 1, table: 8, items: [line("beer-big", 4, true), line("moo-ping", 10, true), line("somtam", 1, true)], note: "", status: "served", createdAt: t - 50 * m },
@@ -311,7 +321,7 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {}
 window.addEventListener("storage", (e) => { if (e.key === KEY) { try { S = JSON.parse(e.newValue) || seed(); } catch {} render(); } });
 
 // ---------- สถานะหน้าจอ (ไม่บันทึก) ----------
-const U = { view: null, table: 5, carts: {}, sheet: null, note: "", staffTab: "orders", modal: null, confirm: null, cat: "yum" };
+const U = { view: null, table: 5, carts: {}, sheet: null, note: "", staffTab: "orders", modal: null, confirm: null, cat: "yum", move: null };
 const cart = () => (U.carts[U.table] ||= {});
 const openOrders = (t) => S.orders.filter((o) => t == null || o.table === t);
 const tableSub = (t) => openOrders(t).filter((o) => o.status !== "cancelled").reduce((s, o) => s + orderTotal(o), 0);
@@ -330,7 +340,7 @@ function renderCustomer() {
     <div class="c-head"><img src="${LOGO}" alt="โลโก้อาม่าแคมป์" width="112" height="112"><h2>${SHOP.name}</h2><p class="tag">${SHOP.tagline}</p>
       <div class="table-row"><span class="table-pill">โต๊ะ ${t}</span>
         <label><span class="sr" hidden>จำลองการสแกน QR โต๊ะอื่น</span><select id="tableSel" aria-label="จำลองการสแกน QR โต๊ะอื่น">${Array.from({ length: SHOP.tables }, (_, i) => `<option value="${i + 1}"${i + 1 === t ? " selected" : ""}>สแกน QR โต๊ะ ${i + 1}${isOpen(i + 1) ? "" : " (ยังไม่เปิด)"}</option>`).join("")}</select></label></div>
-      ${open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>เลือกเมนูใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}
+      ${!open && S.moved && S.moved[t] ? `<div class="closed-note">➡️ ย้ายไปโต๊ะ ${S.moved[t]} แล้วจ้า<br>รายการที่สั่งไว้ย้ายไปด้วยแล้ว สแกน QR ที่โต๊ะใหม่เพื่อสั่งต่อนะจ๊ะ<br><button class="btn" style="margin-top:6px;min-height:36px;padding:4px 12px" data-goto="${S.moved[t]}">สแกน QR โต๊ะ ${S.moved[t]}</button></div>` : open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>เลือกเมนูใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}
       <p class="vat-note">ราคาในเมนูยังไม่รวม VAT ${SHOP.vat}%</p></div>
     <nav class="cats">${CATS.map((k) => `<button data-cat="${k.id}">${k.name}</button>`).join("")}</nav>
     <div class="menu">${CATS.map((k) => `<h3 id="cat-${k.id}">${k.name}</h3>${ITEMS.filter((i) => i.cat === k.id).map((i) => {
@@ -362,6 +372,17 @@ function renderCustomer() {
   document.getElementById("csheet").innerHTML = sh;
 }
 
+// ย้ายโต๊ะ: โต๊ะใหม่ว่าง = ย้าย, มีลูกค้าอยู่ = รวมบิล
+function moveTable(from, to) {
+  for (const o of S.orders) if (o.table === from) { if (o.movedFrom == null) o.movedFrom = from; o.table = to; }
+  const a = S.open[from], b = S.open[to];
+  if (a || b) S.open[to] = Math.min(a || Infinity, b || Infinity);
+  delete S.open[from];
+  if (S.calls[from] && !S.calls[to]) S.calls[to] = S.calls[from];
+  delete S.calls[from];
+  S.moved ||= {}; delete S.moved[to]; S.moved[from] = to;
+}
+
 // ---------- จอพนักงาน ----------
 function lateItems() {
   const out = [];
@@ -378,7 +399,7 @@ function orderCard(o) {
     cooking: `<button class="btn btn-good" data-st="served" data-id="${o.id}">เสิร์ฟครบแล้ว</button>${cancelBtn(o)}`,
     served: `<button class="btn btn-ghost" data-st="cooking" data-id="${o.id}">↩ ย้อนกลับ</button>`,
   }[o.status] || "";
-  return `<div class="order ${o.status}${late ? " late" : ""}"><div class="top"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no}</span></div>
+  return `<div class="order ${o.status}${late ? " late" : ""}"><div class="top"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no}${o.movedFrom ? ` · ย้ายจากโต๊ะ ${o.movedFrom}` : ""}</span></div>
     <div class="when">🕒 สั่ง <b>${hhmm(o.createdAt)}</b> · ${o.status === "served" ? ago(o.createdAt) : `รอมา <b>${w < 1 ? "ไม่ถึง 1" : w}</b> นาที`}</div>
     <ul>${o.items.map((l, i) => `<li class="${l.done ? "done" : ""}">${o.status !== "cancelled" ? `<button class="tick${l.done ? " on" : ""}" data-tick="${o.id}" data-i="${i}" aria-pressed="${l.done}" aria-label="${l.done ? "ยกเลิกติ๊ก" : "ติ๊กว่าได้แล้ว"} ${l.name}">✓</button>` : ""}<span class="q">${l.qty}×</span><span class="nm">${l.name}</span>${late && !l.done ? `<span class="late-tag">⏰ ${w} นาที</span>` : ""}</li>`).join("")}</ul>
     ${o.note ? `<div class="note">📝 ${esc(o.note)}</div>` : ""}<div class="acts">${acts}</div></div>`;
@@ -397,11 +418,24 @@ function renderStaff() {
     const by = (st) => S.orders.filter((o) => o.status === st);
     body = `<div class="cols">${col("new", "ใหม่ รอรับ", by("new"))}${col("cooking", "กำลังทำ", by("cooking"))}${col("served", "เสิร์ฟแล้ว", by("served").slice().reverse())}</div>`;
   } else if (U.staffTab === "tables") {
-    body = `<div class="grid">${Array.from({ length: SHOP.tables }, (_, i) => {
+    const mv = U.move, busy = (t) => openOrders(t).length > 0 || isOpen(t);
+    let bar;
+    if (!mv) bar = `<div class="move-bar"><span class="step">แตะโต๊ะเพื่อดูบิล / เปิดโต๊ะ<small>ลูกค้าย้ายโต๊ะ? กดปุ่มทางขวา แล้วแตะโต๊ะเดิมกับโต๊ะใหม่</small></span><span class="acts"><button class="btn btn-primary" data-move="start">↔️ ย้าย / รวมโต๊ะ</button></span></div>`;
+    else if (!mv.from) bar = `<div class="move-bar on"><span class="step">ขั้นที่ 1: แตะโต๊ะที่ลูกค้าจะ<b>ย้ายออก</b><small>เลือกได้เฉพาะโต๊ะที่มีลูกค้า</small></span><span class="acts"><button class="btn" data-move="cancel">ยกเลิก</button></span></div>`;
+    else if (!mv.to) bar = `<div class="move-bar on"><span class="step">ขั้นที่ 2: แตะโต๊ะ<b>ใหม่</b>ของโต๊ะ ${mv.from}<small>โต๊ะว่าง = ย้ายไป · โต๊ะที่มีลูกค้า = รวมเป็นบิลเดียว</small></span><span class="acts"><button class="btn" data-move="back">← เลือกโต๊ะเดิมใหม่</button><button class="btn" data-move="cancel">ยกเลิก</button></span></div>`;
+    else { const merge = busy(mv.to); bar = `<div class="move-bar on"><span class="step">${merge ? `รวมโต๊ะ ${mv.from} เข้ากับโต๊ะ ${mv.to}` : `ย้ายโต๊ะ ${mv.from} → โต๊ะ ${mv.to}`}<small>${merge ? `รายการทั้งหมดจะรวมเป็นบิลเดียวที่โต๊ะ ${mv.to}` : "รายการที่สั่งไว้และยอดเงินจะย้ายไปด้วย"}</small></span><span class="acts"><button class="btn btn-good" data-move="go">✓ ยืนยัน${merge ? "รวมโต๊ะ" : "ย้าย"}</button><button class="btn" data-move="back2">เลือกโต๊ะใหม่</button><button class="btn" data-move="cancel">ยกเลิก</button></span></div>`; }
+    body = bar + `<div class="grid">${Array.from({ length: SHOP.tables }, (_, i) => {
       const t = i + 1, os = openOrders(t), pend = os.filter((o) => o.status === "new" || o.status === "cooking").length, c = S.calls[t], open = isOpen(t);
       const cls = c ? "call" : pend ? "pending" : os.length ? "active" : open ? "open" : "closed";
       const sub = c ? (c.type === "bill" ? "💵 ขอเช็คบิล" : open ? "🔔 เรียกพนักงาน" : "🔔 เรียกให้เปิดโต๊ะ") : os.length ? `${os.length} ออร์เดอร์${pend ? ` · รอ ${pend}` : ""}` : open ? "เปิดแล้ว ยังไม่สั่ง" : "🔒 ปิดอยู่";
-      return `<button class="tile ${cls}" data-table="${t}"><span class="n">โต๊ะ ${t}</span><span class="sub">${sub}</span>${os.length ? `<span class="amt price">${baht(bill(tableSub(t)).total)}</span>` : ""}</button>`;
+      let attr = `data-table="${t}"`, extra = "", tag = "";
+      if (mv) {
+        if (mv.from === t) { extra = " pick-src"; tag = `<span class="pick-tag">ย้ายออก</span>`; attr = `data-pick="${t}"`; }
+        else if (mv.to === t) { extra = " pick-dst"; tag = `<span class="pick-tag" style="color:var(--good)">${busy(t) ? "รวมเข้า" : "ย้ายไป"}</span>`; attr = `data-pick="${t}"`; }
+        else if (!mv.from) attr = busy(t) ? `data-pick="${t}"` : "disabled";
+        else attr = `data-pick="${t}"`;
+      }
+      return `<button class="tile ${cls}${extra}" ${attr} aria-label="โต๊ะ ${t}"><span class="n">โต๊ะ ${t}</span>${tag}<span class="sub">${sub}</span>${os.length ? `<span class="amt price">${baht(bill(tableSub(t)).total)}</span>` : ""}</button>`;
     }).join("")}</div>`;
   } else if (U.staffTab === "menu") {
     body = `<p style="color:var(--muted);margin:0 0 10px">ของหมด กดปิด ลูกค้าจะเห็นคำว่า "หมด" ทันที</p>` + ITEMS.map((i) => { const off = S.soldOut.includes(i.id); return `<div class="menu-row${off ? " off" : ""}"><span><b>${i.name}</b> <span class="price" style="color:var(--muted)">${baht(i.price)}</span>${off ? ` <span class="badge s-new">หมด</span>` : ""}</span><button class="switch${off ? " off" : ""}" data-sold="${i.id}" aria-pressed="${!off}" aria-label="${off ? "เปิดขาย" : "ปิด (หมด)"} ${i.name}"></button></div>`; }).join("");
@@ -422,6 +456,7 @@ function renderStaff() {
       ${!isOpen(t) && !os.length ? `<p style="color:var(--muted);margin:0 0 12px">ลูกค้านั่งที่โต๊ะนี้แล้ว? กดเปิดโต๊ะ ลูกค้าถึงจะสแกนสั่งได้</p><button class="btn btn-good" style="width:100%;font-size:18px" data-open="${t}">🔓 เปิดโต๊ะ ${t}</button>` : `
       ${Object.keys(agg).length ? `<table><tbody>${Object.values(agg).map((x) => `<tr><td>${x.name}</td><td>${x.qty} × ${baht(x.price)}</td><td class="price">${baht(x.qty * x.price)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">ยังไม่มีรายการ</div>`}
       <div class="sum" style="box-shadow:none;background:var(--bg)"><div class="r"><span>ค่าอาหารและเครื่องดื่ม</span><span class="price">${baht(b.sub)}</span></div><div class="r"><span>VAT ${SHOP.vat}%</span><span class="price">${baht(b.vat)}</span></div><div class="r pay"><span>ยอดที่ต้องเก็บเงิน</span><span class="price">${baht(b.total)}</span></div></div>
+      <button class="btn" style="width:100%;margin-bottom:8px" data-move="from:${t}">↔️ ย้าย / รวมโต๊ะนี้</button>
       ${U.confirm === "close:" + t ? `<button class="btn btn-good" style="width:100%;font-size:17px" data-close="${t}">กดอีกครั้งเพื่อยืนยันปิดบิล ${baht(b.total)}</button>` : `<button class="btn btn-good" style="width:100%;font-size:17px" data-ask="close:${t}">${os.length ? "รับเงินแล้ว · ปิดบิล / ปิดโต๊ะ" : "ปิดโต๊ะ (ลูกค้ากลับแล้ว)"}</button>`}`}
     </div></div>`;
   }
@@ -464,7 +499,23 @@ document.addEventListener("click", (e) => {
   }
   if (act === "ff") { S.shift = (S.shift || 0) + SHOP.late * 60000; save(); if (lateItems().length) { beep(); toast("stoast", "⏰ มีเมนูที่รอเกิน 20 นาที"); } return; }
   if (act === "reset") { if (U.confirm !== "reset") { U.confirm = "reset"; b.textContent = "กดอีกครั้งเพื่อล้างข้อมูล"; return; } S = seed(); U.carts = {}; U.confirm = null; U.sheet = null; U.modal = null; b.textContent = "↺ เริ่มใหม่"; return save(); }
-  if (d.tab) { U.staffTab = d.tab; return render(); }
+  if (d.tab) { U.staffTab = d.tab; U.move = null; return render(); }
+  if (d.move) {
+    const m = d.move;
+    if (m === "start") U.move = { from: null, to: null };
+    else if (m.startsWith("from:")) { U.move = { from: +m.slice(5), to: null }; U.modal = null; U.staffTab = "tables"; }
+    else if (m === "cancel") U.move = null;
+    else if (m === "back") U.move = { from: null, to: null };
+    else if (m === "back2") U.move.to = null;
+    else if (m === "go") { const { from, to } = U.move; const merged = openOrders(to).length > 0 || isOpen(to); moveTable(from, to); if (U.carts[from]) { const c = (U.carts[to] ||= {}); for (const [k, q] of Object.entries(U.carts[from])) c[k] = (c[k] || 0) + q; delete U.carts[from]; } U.move = null; toast("stoast", merged ? `รวมโต๊ะ ${from} เข้าโต๊ะ ${to} แล้ว` : `ย้ายโต๊ะ ${from} ไปโต๊ะ ${to} แล้ว`); if (U.table === from) toast("ctoast", `ย้ายไปโต๊ะ ${to} แล้ว`); return save(); }
+    return render();
+  }
+  if (d.pick) {
+    const t = +d.pick, mv = U.move; if (!mv) return;
+    if (!mv.from) mv.from = t; else if (t === mv.from) { mv.from = null; mv.to = null; } else mv.to = mv.to === t ? null : t;
+    return render();
+  }
+  if (d.goto) { U.table = +d.goto; U.sheet = null; render(); document.getElementById("screen").scrollTop = 0; return; }
   if (d.ask) { U.confirm = d.ask; return render(); }
   if (d.st) { const o = S.orders.find((x) => x.id === d.id); o.status = d.st; if (d.st === "served") o.items.forEach((l) => (l.done = true)); U.confirm = null; return save(); }
   if (d.tick) {
@@ -474,7 +525,7 @@ document.addEventListener("click", (e) => {
   }
   if (d.snooze) { S.snooze[d.snooze] = now() + 5 * 60000; toast("stoast", "จะเตือนอีกครั้งใน 5 นาที"); return save(); }
   if (d.table) { U.modal = +d.table; U.confirm = null; return render(); }
-  if (d.open) { S.open[+d.open] = now(); if (S.calls[+d.open]?.type === "staff") delete S.calls[+d.open]; U.modal = null; toast("stoast", `เปิดโต๊ะ ${d.open} แล้ว`); if (+d.open === U.table) toast("ctoast", "เปิดโต๊ะแล้ว สั่งได้เลยจ้า"); return save(); }
+  if (d.open) { S.open[+d.open] = now(); if (S.moved) delete S.moved[+d.open]; if (S.calls[+d.open]?.type === "staff") delete S.calls[+d.open]; U.modal = null; toast("stoast", `เปิดโต๊ะ ${d.open} แล้ว`); if (+d.open === U.table) toast("ctoast", "เปิดโต๊ะแล้ว สั่งได้เลยจ้า"); return save(); }
   if (d.clear) { delete S.calls[+d.clear]; return save(); }
   if (d.sold) { S.soldOut = S.soldOut.includes(d.sold) ? S.soldOut.filter((x) => x !== d.sold) : [...S.soldOut, d.sold]; Object.values(U.carts).forEach((c) => delete c[d.sold]); return save(); }
   if (d.close) {
