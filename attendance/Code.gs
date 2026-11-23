@@ -21,7 +21,7 @@ const DEVICE_RE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 const TYPE_LABEL = { IN: 'เข้างาน', OUT: 'ออกงาน' };
 const CHANNEL = { PHONE: 'มือถือพนักงาน', KIOSK: 'เครื่องของร้าน' };
 const SETTING_DEFAULTS = [
-  ['SHOP_NAME', 'ร้านของเรา', 'ชื่อร้านที่แสดงบนหน้าจอ'],
+  ['SHOP_NAME', 'อาม่า แคมป์', 'ชื่อร้านที่แสดงบนหน้าจอ'],
   ['ADMIN_PIN', '9999', 'รหัสเปิดหน้าจอร้านและหน้าตรวจรูป — เปลี่ยนทันทีหลังติดตั้ง!'],
   ['QR_SECONDS', 30, 'QR บนหน้าจอร้านเปลี่ยนทุกกี่วินาที (10–300)'],
   ['REQUIRE_PHOTO', 'TRUE', 'บังคับถ่ายเซลฟี่ตอนลงเวลา (TRUE/FALSE)'],
@@ -83,7 +83,7 @@ function setup() {
 
   ui.alert('ตั้งค่าเสร็จแล้ว ✅',
     'ขั้นต่อไป:\n' +
-    '1. แท็บ "ตั้งค่า" → เปลี่ยน SHOP_NAME และ ADMIN_PIN\n' +
+    '1. แท็บ "ตั้งค่า" → เปลี่ยน ADMIN_PIN (ชื่อร้านตั้งเป็น อาม่า แคมป์ ไว้แล้ว)\n' +
     '2. แท็บ "พนักงาน" → ใส่รายชื่อ รหัส และ PIN ของแต่ละคน (ลบแถวตัวอย่างออก)\n' +
     '3. Deploy เป็นเว็บแอป (ดู README) แล้วกดเมนู "ดูลิงก์หน้าจอร้าน"',
     ui.ButtonSet.OK);
@@ -382,7 +382,7 @@ function getSettings_() {
       if (k && r[1] !== '' && r[1] !== null) s[k] = r[1];
     });
   }
-  s.SHOP_NAME = String(s.SHOP_NAME).trim() || 'ร้านของเรา';
+  s.SHOP_NAME = String(s.SHOP_NAME).trim() || 'อาม่า แคมป์';
   s.ADMIN_PIN = String(s.ADMIN_PIN).trim();
   s.QR_SECONDS = Math.round(clampNum_(s.QR_SECONDS, 10, 300, 30));
   s.REQUIRE_PHOTO = bool_(s.REQUIRE_PHOTO);
