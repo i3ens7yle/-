@@ -65,6 +65,10 @@
   .tile.empty-t { opacity: 0.6; }
   .tile.closed-t { opacity: 0.55; border-style: dashed; }
   .tile.open-t { border-color: var(--good); }
+  .pick { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); margin: 10px 0 14px; }
+  .pick button { border: 2px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 6px; min-height: 64px; font-weight: 700; }
+  .pick button small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .pick button.busy { border-color: var(--accent); }
   .open-big { width: 100%; font-size: 20px; min-height: 60px; margin-top: 6px; }
 
   .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; }
@@ -167,7 +171,7 @@ function orderCard(o) {
     served: `<button class="btn btn-ghost" data-st="cooking" data-id="${o.id}">↩ ย้อนกลับ</button>`,
   }[o.status] || "";
   return `<div class="order ${o.status}">
-    <div class="head"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no} · ${hhmm(o.createdAt)} · ${ago(o.createdAt)}</span></div>
+    <div class="head"><span class="tno">โต๊ะ ${o.table}</span><span class="meta">#${o.no}${o.movedFrom ? ` · ย้ายจากโต๊ะ ${o.movedFrom}` : ""} · ${hhmm(o.createdAt)} · ${ago(o.createdAt)}</span></div>
     <ul>${o.items.map((l) => `<li><span class="q">${l.qty}×</span><span>${esc(l.name)}</span></li>`).join("")}</ul>
     ${o.note ? `<div class="note">📝 ${esc(o.note)}</div>` : ""}
     <div class="acts">${acts}</div></div>`;
@@ -252,6 +256,7 @@ function renderTable(n) {
     ${orders.length ? `<details><summary>ดูแยกทีละออร์เดอร์ (${orders.length})</summary>${orders.map((o) => `
       <div style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between"><b>#${o.no} · ${hhmm(o.createdAt)}</b><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
       ${o.items.map((l) => `${esc(l.name)} × ${l.qty}`).join(", ")}${o.note ? `<div class="stat">📝 ${esc(o.note)}</div>` : ""}</div>`).join("")}</details>` : ""}
+    <button class="btn" style="width:100%;margin-bottom:8px" data-movepick="${n}">↔️ ย้าย / รวมโต๊ะ</button>
     <button class="btn btn-good" style="width:100%;font-size:18px" data-closebill="${n}" ${orders.length || (t && (t.call || (S.requireOpenTable && t.open))) ? "" : "disabled"}>${orders.length ? "รับเงินแล้ว · ปิดบิล / ปิดโต๊ะ" : "ปิดโต๊ะ (ลูกค้ากลับแล้ว)"}</button>`;
   document.getElementById("tableSheet").classList.add("open");
 }
@@ -276,6 +281,27 @@ document.addEventListener("click", async (e) => {
       await api(`/api/staff/table/${n}/open`, {});
       toast(`เปิดโต๊ะ ${n} แล้ว ลูกค้าสั่งได้เลย`);
       if (openTable === n) openTable = null, document.getElementById("tableSheet").classList.remove("open");
+      return load();
+    }
+    if (b.dataset.movepick) {
+      const n = Number(b.dataset.movepick);
+      document.getElementById("tableBody").innerHTML = `
+        <h2><span>ย้ายโต๊ะ ${n} ไปที่โต๊ะ...</span><button class="close" data-closesheet aria-label="ปิด">×</button></h2>
+        <p class="stat" style="margin:0">เลือกโต๊ะว่าง = ย้ายโต๊ะ · เลือกโต๊ะที่มีลูกค้า = รวมบิลเป็นโต๊ะเดียว</p>
+        <div class="pick">${S.tables.filter((t) => t.table !== n).map((t) => {
+          const busy = t.orders || (S.requireOpenTable && t.open);
+          return `<button class="${busy ? "busy" : ""}" data-moveto="${t.table}" data-from="${n}">โต๊ะ ${t.table}<small>${busy ? "มีลูกค้า · รวม" : "ว่าง"}</small></button>`;
+        }).join("")}</div>
+        <button class="btn" style="width:100%" data-table="${n}">← กลับ</button>`;
+      return;
+    }
+    if (b.dataset.moveto) {
+      const from = Number(b.dataset.from), to = Number(b.dataset.moveto);
+      const busy = b.classList.contains("busy");
+      if (!confirm(busy ? `รวมโต๊ะ ${from} เข้ากับโต๊ะ ${to}?\nรายการทั้งหมดจะรวมเป็นบิลเดียวที่โต๊ะ ${to}` : `ย้ายลูกค้าโต๊ะ ${from} ไปโต๊ะ ${to}?\nรายการที่สั่งไว้จะย้ายไปด้วย`)) return;
+      const r = await api(`/api/staff/table/${from}/move`, { to });
+      closeTableSheet();
+      toast(r.merged ? `รวมโต๊ะ ${from} เข้าโต๊ะ ${to} แล้ว` : `ย้ายโต๊ะ ${from} ไปโต๊ะ ${to} แล้ว`);
       return load();
     }
     if (b.dataset.clear) { await api(`/api/staff/call/${b.dataset.clear}/clear`, {}); return load(); }

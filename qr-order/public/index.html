@@ -154,7 +154,8 @@ function render() {
   const scrollY = window.scrollY;
   app.innerHTML = `
     <header class="top">${MENU.logo ? `<img class="logo" src="${esc(MENU.logo)}" alt="โลโก้ร้าน ${esc(MENU.shopName)}" width="150" height="150">` : ""}<h1>${esc(MENU.shopName)}</h1>${MENU.tagline ? `<div class="tagline">${esc(MENU.tagline)}</div>` : ""}<span class="table-pill">โต๊ะ ${TABLE}</span>
-      ${TABLE_STATE.open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>ดูเมนูและเลือกใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}</header>
+      ${TABLE_STATE.movedTo ? `<div class="closed-note">➡️ ย้ายไปโต๊ะ ${Number(TABLE_STATE.movedTo)} แล้วจ้า<br>รายการที่สั่งไว้ย้ายไปด้วยแล้ว กรุณาสแกน QR ที่โต๊ะ ${Number(TABLE_STATE.movedTo)} เพื่อสั่งต่อนะจ๊ะ</div>`
+        : TABLE_STATE.open ? "" : `<div class="closed-note">🔒 โต๊ะนี้ยังไม่เปิด<br>ดูเมนูและเลือกใส่ตะกร้าไว้ก่อนได้ แล้วกด "เรียกพนักงาน" ให้มาเปิดโต๊ะนะจ๊ะ</div>`}</header>
     <nav class="cats">${MENU.categories.map((c, ix) => `<button data-cat="${esc(c.id)}"${ix === 0 ? ' class="on"' : ""}>${esc(c.name)}</button>`).join("")}</nav>
     <main>${sections}</main>
     <div class="bar"><div class="bar-inner">
@@ -237,9 +238,10 @@ document.querySelectorAll(".sheet-bg").forEach((bg) => bg.addEventListener("clic
 
 async function loadMenu() { MENU = await api("/api/menu"); render(); }
 async function refreshTable() {
-  const wasOpen = TABLE_STATE.open;
+  const wasOpen = TABLE_STATE.open, wasMoved = TABLE_STATE.movedTo;
   TABLE_STATE = await api(`/api/table/${TABLE}?k=${encodeURIComponent(KEY)}`);
   if (refreshTable.loaded && !wasOpen && TABLE_STATE.open) toast("เปิดโต๊ะแล้ว สั่งได้เลยจ้า");
+  if (refreshTable.loaded && TABLE_STATE.movedTo && !wasMoved) { toast(`ย้ายไปโต๊ะ ${TABLE_STATE.movedTo} แล้ว`); window.scrollTo({ top: 0, behavior: "smooth" }); }
   refreshTable.loaded = true;
   render();
   if (document.getElementById("cartSheet").classList.contains("open")) renderCart();

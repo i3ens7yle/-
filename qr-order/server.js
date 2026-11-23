@@ -62,7 +62,7 @@ function tableOk(table, key) {
 
 // ---------- ข้อมูลออร์เดอร์ (เก็บลงไฟล์ data/state.json) ----------
 const state = Object.assign(
-  { nextNo: 1, orders: [], calls: {}, soldOut: [], bills: [], openTables: {} },
+  { nextNo: 1, orders: [], calls: {}, soldOut: [], bills: [], openTables: {}, moved: {} },
   readJson(STATE_FILE, {})
 );
 let saveTimer = null;
@@ -135,7 +135,9 @@ app.get("/api/menu", (req, res) => {
 app.get("/api/table/:t", (req, res) => {
   const t = Number(req.params.t);
   if (!tableOk(t, req.query.k)) return res.status(403).json({ error: "QR Code ไม่ถูกต้อง กรุณาสแกนใหม่ที่โต๊ะ" });
-  res.json({ table: t, open: isOpen(t), orders: openOrders(t), total: tableTotal(t), call: state.calls[t] || null });
+  const mv = state.moved[t];
+  const movedTo = !openOrders(t).length && mv && Date.now() - mv.at < 3 * 3600e3 ? mv.to : null;
+  res.json({ table: t, open: isOpen(t), movedTo, orders: openOrders(t), total: tableTotal(t), call: state.calls[t] || null });
 });
 
 const lastOrderAt = new Map();
@@ -246,10 +248,38 @@ app.post("/api/staff/table/:t/open", staffOnly, (req, res) => {
   const t = Number(req.params.t);
   if (!Number.isInteger(t) || t < 1 || t > config().tables) return res.status(404).json({ error: "ไม่พบโต๊ะ" });
   if (!state.openTables[t]) state.openTables[t] = { openedAt: Date.now() };
+  delete state.moved[t];
   if (state.calls[t] && state.calls[t].type === "staff") delete state.calls[t];
   save();
   broadcast(t);
   res.json({ ok: true });
+});
+
+// ย้ายโต๊ะ: ถ้าโต๊ะปลายทางว่าง = ย้าย, ถ้ามีลูกค้าอยู่แล้ว = รวมบิลเป็นโต๊ะเดียว
+app.post("/api/staff/table/:t/move", staffOnly, (req, res) => {
+  const from = Number(req.params.t);
+  const to = Number(req.body && req.body.to);
+  const max = config().tables;
+  if (![from, to].every((x) => Number.isInteger(x) && x >= 1 && x <= max) || from === to)
+    return res.status(400).json({ error: "เลขโต๊ะไม่ถูกต้อง" });
+  const list = openOrders(from);
+  if (!list.length && !state.openTables[from]) return res.status(400).json({ error: `โต๊ะ ${from} ไม่มีลูกค้า` });
+  const merged = openOrders(to).length > 0 || !!state.openTables[to];
+  for (const o of list) {
+    if (o.movedFrom == null) o.movedFrom = from;
+    o.table = to;
+  }
+  const a = state.openTables[from], b = state.openTables[to];
+  if (a || b) state.openTables[to] = { openedAt: Math.min(a ? a.openedAt : Infinity, b ? b.openedAt : Infinity) };
+  delete state.openTables[from];
+  if (state.calls[from] && !state.calls[to]) state.calls[to] = state.calls[from];
+  delete state.calls[from];
+  delete state.moved[to];
+  state.moved[from] = { to, at: Date.now() };
+  save();
+  broadcast(from);
+  broadcast(to);
+  res.json({ ok: true, merged });
 });
 
 app.post("/api/staff/table/:t/close", staffOnly, (req, res) => {
