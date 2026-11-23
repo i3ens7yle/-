@@ -42,6 +42,7 @@ function createEnv(opts = {}) {
     setNumberFormat() { return this; }
     setFontWeight() { return this; }
     setBackground() { return this; }
+    setDataValidation() { return this; }
   }
   class Sheet {
     constructor(name) { this.name = name; this.data = []; }
@@ -95,6 +96,10 @@ function createEnv(opts = {}) {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => spreadsheet,
       flush() {},
+      newDataValidation() {
+        const b = { requireValueInList: () => b, setAllowInvalid: () => b, build: () => ({}) };
+        return b;
+      },
       getUi() {
         if (!opts.ui) throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
         return opts.ui(uiCalls);
@@ -107,6 +112,7 @@ function createEnv(opts = {}) {
         [...crypto.createHmac('sha256', key).update(value).digest()].map((b) => (b > 127 ? b - 256 : b)),
       base64Decode: (s) => [...Buffer.from(s, 'base64')],
       newBlob: (bytes, type, name) => ({ bytes, type, name }),
+      base64Encode: (bytes) => Buffer.from(bytes.map((b) => b & 0xff)).toString('base64'),
     },
     PropertiesService: {
       getScriptProperties: () => ({
@@ -119,6 +125,11 @@ function createEnv(opts = {}) {
         get: (k) => (cache[k] && cache[k].exp > clock.now ? cache[k].v : null),
         put: (k, v, ttl) => { cache[k] = { v: String(v), exp: clock.now + (ttl || 600) * 1000 }; },
         remove: (k) => { delete cache[k]; },
+        getAll: (keys) => {
+          const out = {};
+          keys.forEach((k) => { if (cache[k] && cache[k].exp > clock.now) out[k] = cache[k].v; });
+          return out;
+        },
       }),
     },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -129,11 +140,17 @@ function createEnv(opts = {}) {
           getId: () => id,
           createFile: (blob) => {
             drive.files.push(blob);
-            return { getUrl: () => 'https://drive.google.com/file/d/' + drive.files.length + '/view' };
+            const fid = 'FILE' + String(drive.files.length).padStart(8, '0');
+            return { getUrl: () => 'https://drive.google.com/file/d/' + fid + '/view?usp=drivesdk' };
           },
         };
         drive.folders[id] = { name, f };
         return f;
+      },
+      getFileById(id) {
+        const blob = drive.files[Number(String(id).replace('FILE', '')) - 1];
+        if (!blob) throw new Error('file not found');
+        return { getBlob: () => ({ getContentType: () => blob.type, getBytes: () => blob.bytes }) };
       },
       getFolderById(id) {
         if (!drive.folders[id]) throw new Error('not found');

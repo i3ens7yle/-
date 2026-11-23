@@ -5,12 +5,19 @@ const assert = require('assert/strict');
 const { createEnv } = require('./harness');
 
 const PHOTO = 'data:image/jpeg;base64,' + Buffer.from('fake-jpeg').toString('base64');
+const THUMB = 'data:image/jpeg;base64,' + Buffer.from('fake-thumb').toString('base64');
 const EMPLOYEES = [
   ['E01', 'สมชาย', '1234', '16:00', 'ทำงาน'],
   ['E02', 'มานี', '0042', '17:00', 'ทำงาน'],
   ['E03', 'ปิติ', '9999', '16:00', 'ลาออก'],
 ];
-const MIN = 60000, HOUR = 60 * MIN;
+// มือถือแต่ละเครื่อง (รหัสสุ่มจากหน้าเว็บ)
+const PHONE = {
+  somchai: { id: 'S4F8-B2KQ', name: 'iPhone · Safari' },
+  manee: { id: 'M7Q2-K9XA', name: 'Android · Chrome' },
+  somchaiNew: { id: 'X9PD-A3RT', name: 'Android · Chrome' },
+};
+const MIN = 60000;
 
 let passed = 0;
 function test(name, fn) {
@@ -20,38 +27,55 @@ function test(name, fn) {
   catch (e) { console.error('  ✗ ' + name + '\n    ' + (e.stack || e)); process.exitCode = 1; }
 }
 
+const bootOf = (html) => JSON.parse(/var BOOT = (.*?);<\/script>/.exec(html)[1]);
+
 /** จำลองการสแกน QR บนหน้าจอร้าน → ได้ pass จากหน้าเว็บ */
 function scan(env) {
   const k = env.run('apiKioskRefresh', '9999');
   assert.equal(k.ok, true, k.error);
   const t = new URL(k.qr.url).searchParams.get('t');
-  const page = env.ctx.doGet({ parameter: { t } });
-  const boot = JSON.parse(/var BOOT = (.*?);<\/script>/.exec(page.html)[1]);
-  return { boot, token: t };
+  return { boot: bootOf(env.ctx.doGet({ parameter: { t } }).html), token: t };
 }
 
 function punch(env, empId, pin, type, extra) {
   const { boot } = scan(env);
   assert.ok(boot.pass, boot.error);
-  return env.run('apiPunch', Object.assign({ pass: boot.pass, empId, pin, type, photo: PHOTO, device: 'test' }, extra));
+  const device = empId === 'E01' ? PHONE.somchai : PHONE.manee;
+  return env.run('apiPunch', Object.assign({ pass: boot.pass, empId, pin, type, photo: PHOTO, device }, extra));
 }
+
+const logRows = (env) => env.sheets['บันทึกเวลา'].data.slice(1).filter(Boolean);
+const devRows = (env) => (env.sheets['อุปกรณ์'] ? env.sheets['อุปกรณ์'].data.slice(1).filter(Boolean) : []);
 
 console.log('ระบบลงเวลา — tests');
 
+// ───────── พื้นฐาน ─────────
+
 test('setup สร้างแท็บและค่าตั้งต้นครบ', (env) => {
-  assert.ok(env.sheets['พนักงาน'] && env.sheets['บันทึกเวลา'] && env.sheets['ตั้งค่า']);
+  for (const s of ['พนักงาน', 'บันทึกเวลา', 'อุปกรณ์', 'ตั้งค่า']) assert.ok(env.sheets[s], s);
   assert.ok(env.props.QR_SECRET && env.props.PHOTO_FOLDER_ID);
-  assert.equal(env.ctx.getSettings_().QR_SECONDS, 30);
+  const cfg = env.ctx.getSettings_();
+  assert.equal(cfg.QR_SECONDS, 30);
+  assert.equal(cfg.DEVICE_LOCK, false);
+  assert.equal(cfg.KIOSK_PHOTO, true);
+});
+
+test('setup ซ้ำ (หลังอัปเดตโค้ด) อัปเดตหัวตารางโดยข้อมูลเดิมไม่หาย', (env) => {
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.sheets['บันทึกเวลา'].data[0] = env.sheets['บันทึกเวลา'].data[0].slice(0, 9); // หัวตารางเวอร์ชันเก่า
+  env.seed();
+  assert.equal(env.sheets['บันทึกเวลา'].data[0][10], 'ตรวจสอบ');
+  assert.equal(logRows(env).length, 1);
+  assert.equal(env.sheets['พนักงาน'].data.length, 4);
 });
 
 test('ฟังก์ชันเมนูเรียกผ่านเว็บไม่ได้ (getUi โยน error)', (env) => {
-  for (const fn of ['setup', 'rotateSecret', 'promptMonthlySummary', 'showLinks', 'onOpen']) {
+  for (const fn of ['setup', 'rotateSecret', 'promptMonthlySummary', 'showLinks', 'onOpen', 'approveAllPending']) {
     assert.throws(() => env.ctx[fn](), /getUi/);
   }
 });
 
 test('หน้าจอร้าน: ต้องมี ADMIN_PIN ถูกต้อง', (env) => {
-  assert.equal(env.run('apiKioskInit', '0000').ok, false);
   assert.equal(env.run('apiKioskInit', '0000').code, 'ADMIN');
   const r = env.run('apiKioskInit', '9999');
   assert.equal(r.ok, true);
@@ -64,18 +88,19 @@ test('สแกน → login → ลงเวลาเข้า แล้วบ�
   const { boot } = scan(env);
   assert.equal(boot.mode, 'punch');
   assert.equal(env.run('apiEmployees', boot.pass).employees.length, 2);
-  const login = env.run('apiLogin', boot.pass, 'E02', '0042');
+  const login = env.run('apiLogin', boot.pass, 'E02', '0042', PHONE.manee);
   assert.equal(login.ok, true, login.error);
   assert.equal(login.suggested, 'IN');
   assert.equal(login.last, null);
 
-  const r = env.run('apiPunch', { pass: boot.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO });
+  const r = env.run('apiPunch', { pass: boot.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO, device: PHONE.manee });
   assert.equal(r.ok, true, r.error);
   assert.equal(r.time, '16:00:00');
   assert.equal(r.date, '23 พ.ย. 2569');
-  const row = env.sheets['บันทึกเวลา'].data[1];
+  const row = logRows(env)[0];
   assert.deepEqual(row.slice(1, 7), ['2026-11-23', '16:00:00', 'E02', 'มานี', 'เข้างาน', 'มือถือพนักงาน']);
   assert.match(row[7], /drive\.google\.com/);
+  assert.deepEqual(row.slice(8), ['Android · Chrome', 'M7Q2-K9XA', '']);
   assert.equal(env.drive.files[0].name, '2026-11-23_160000_E02_IN.jpg');
 });
 
@@ -99,75 +124,218 @@ test('QR ปลอม/แก้ไข ใช้ไม่ได้', (env) => {
 test('pass หมดอายุหลัง 5 นาที และใช้ซ้ำไม่ได้', (env) => {
   let { boot } = scan(env);
   env.advance(6 * MIN);
-  const r = env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO });
-  assert.equal(r.ok, false);
+  const r = env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO, device: PHONE.somchai });
   assert.equal(r.code, 'PASS');
 
   ({ boot } = scan(env));
-  assert.equal(env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO }).ok, true);
-  const again = env.run('apiPunch', { pass: boot.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO });
+  assert.equal(env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO, device: PHONE.somchai }).ok, true);
+  const again = env.run('apiPunch', { pass: boot.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO, device: PHONE.manee });
   assert.equal(again.ok, false);
   assert.match(again.error, /ใช้ลงเวลาไปแล้ว/);
 });
 
 test('สองคนสแกน QR เดียวกันในวินาทีเดียวกัน ลงเวลาได้ทั้งคู่', (env) => {
   const { token } = scan(env);
-  const boot = (t) => JSON.parse(/var BOOT = (.*?);<\/script>/.exec(env.ctx.doGet({ parameter: { t } }).html)[1]);
-  const a = boot(token), b = boot(token);
+  const a = bootOf(env.ctx.doGet({ parameter: { t: token } }).html);
+  const b = bootOf(env.ctx.doGet({ parameter: { t: token } }).html);
   assert.notEqual(a.pass, b.pass);
-  assert.equal(env.run('apiPunch', { pass: a.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO }).ok, true);
-  const rb = env.run('apiPunch', { pass: b.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO });
+  assert.equal(env.run('apiPunch', { pass: a.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO, device: PHONE.somchai }).ok, true);
+  const rb = env.run('apiPunch', { pass: b.pass, empId: 'E02', pin: '0042', type: 'IN', photo: PHOTO, device: PHONE.manee });
   assert.equal(rb.ok, true, rb.error);
 });
 
 test('PIN ผิด 5 ครั้ง → ล็อก 10 นาที', (env) => {
   const { boot } = scan(env);
-  for (let i = 0; i < 5; i++) assert.equal(env.run('apiLogin', boot.pass, 'E01', '0000').code, 'PIN');
-  assert.match(env.run('apiLogin', boot.pass, 'E01', '1234').error, /รอ 10 นาที/);
-  env.advance(4 * MIN); // pass ยังไม่หมด (รวม 4 นาที)
-  assert.match(env.run('apiLogin', boot.pass, 'E01', '1234').error, /รอ 10 นาที/);
-  env.advance(7 * MIN);
+  for (let i = 0; i < 5; i++) assert.equal(env.run('apiLogin', boot.pass, 'E01', '0000', PHONE.somchai).code, 'PIN');
+  assert.match(env.run('apiLogin', boot.pass, 'E01', '1234', PHONE.somchai).error, /รอ 10 นาที/);
+  env.advance(11 * MIN);
   const b2 = scan(env).boot;
-  assert.equal(env.run('apiLogin', b2.pass, 'E01', '1234').ok, true);
+  assert.equal(env.run('apiLogin', b2.pass, 'E01', '1234', PHONE.somchai).ok, true);
+});
+
+test('PIN ผิดไม่ลงทะเบียนเครื่อง', (env) => {
+  const { boot } = scan(env);
+  env.run('apiLogin', boot.pass, 'E01', '0000', PHONE.manee);
+  assert.equal(devRows(env).length, 0);
 });
 
 test('พนักงานลาออก login ไม่ได้', (env) => {
   const { boot } = scan(env);
-  assert.match(env.run('apiLogin', boot.pass, 'E03', '9999').error, /ไม่พบ/);
+  assert.match(env.run('apiLogin', boot.pass, 'E03', '9999', PHONE.manee).error, /ไม่พบ/);
 });
 
 test('บังคับเซลฟี่ตามค่า REQUIRE_PHOTO', (env) => {
-  let r = punch(env, 'E01', '1234', 'IN', { photo: null });
-  assert.equal(r.code, 'PHOTO');
+  assert.equal(punch(env, 'E01', '1234', 'IN', { photo: null }).code, 'PHOTO');
   env.setSetting('REQUIRE_PHOTO', 'FALSE');
-  r = punch(env, 'E01', '1234', 'IN', { photo: null });
+  const r = punch(env, 'E01', '1234', 'IN', { photo: null });
   assert.equal(r.ok, true, r.error);
-  assert.equal(env.sheets['บันทึกเวลา'].data[1][7], '');
+  assert.equal(logRows(env)[0][7], '');
 });
 
 test('กันกดซ้ำภายใน MIN_GAP_MINUTES และแนะนำปุ่มถัดไปถูก', (env) => {
   assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
   env.advance(30 * 1000);
-  const dup = punch(env, 'E01', '1234', 'IN');
-  assert.equal(dup.code, 'DUP');
+  assert.equal(punch(env, 'E01', '1234', 'IN').code, 'DUP');
   const { boot } = scan(env);
-  const login = env.run('apiLogin', boot.pass, 'E01', '1234');
+  const login = env.run('apiLogin', boot.pass, 'E01', '1234', PHONE.somchai);
   assert.equal(login.suggested, 'OUT');
   assert.equal(login.last.when, 'วันนี้ 16:00');
 });
 
-test('ลงเวลาที่เครื่องร้าน (คนไม่มีมือถือ)', (env) => {
+test('ลงเวลาที่เครื่องร้าน (คนไม่มีมือถือ) ไม่ต้องมีรหัสเครื่อง และไม่ติดธง', (env) => {
+  env.setSetting('DEVICE_LOCK', 'TRUE');
   assert.equal(env.run('apiKioskLogin', '9999', 'E01', '1234').ok, true);
   assert.equal(env.run('apiKioskPunch', { adminPin: '1111', empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO }).code, 'ADMIN');
   const r = env.run('apiKioskPunch', { adminPin: '9999', empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO });
   assert.equal(r.ok, true, r.error);
-  assert.equal(env.sheets['บันทึกเวลา'].data[1][6], 'เครื่องของร้าน');
+  assert.deepEqual(logRows(env)[0].slice(6, 11).filter((_, i) => i !== 1), ['เครื่องของร้าน', 'แท็บเล็ตร้าน', '', '']);
+  assert.equal(devRows(env).length, 0);
   const board = env.run('apiKioskRefresh', '9999').board;
   assert.deepEqual(board.inside, [{ name: 'สมชาย', since: '16:00' }]);
-  assert.equal(board.recent[0].label, 'เข้างาน');
 });
 
-test('สรุปรายเดือน: กะดึกข้ามเที่ยงคืน, มาสาย, ลืมลงเวลาออก', (env) => {
+// ───────── ข้อ 1: รหัสประจำเครื่อง + เตือนอัตโนมัติ ─────────
+
+test('[1] เครื่องแรกของแต่ละคนอนุมัติอัตโนมัติ ไม่มีธง', (env) => {
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  assert.deepEqual(devRows(env).map((r) => [r[0], r[2], r[6], r[7]]), [
+    ['E01', 'S4F8-B2KQ', 'อนุมัติ', 'เครื่องแรก (อนุมัติอัตโนมัติ)'],
+    ['E02', 'M7Q2-K9XA', 'อนุมัติ', 'เครื่องแรก (อนุมัติอัตโนมัติ)'],
+  ]);
+  assert.deepEqual(logRows(env).map((r) => r[10]), ['', '']);
+});
+
+test('[1] กรณี A: มานีใช้ PIN ของสมชายกดแทนจากมือถือตัวเอง → ติดธง "เครื่องเดียวกับ มานี"', (env) => {
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);            // สมชายใช้เครื่องตัวเองตามปกติ
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);            // มานีใช้เครื่องตัวเอง
+  env.advance(24 * 3600000);
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  const r = punch(env, 'E01', '1234', 'IN', { device: PHONE.manee }); // มานีกดแทนสมชาย
+  assert.equal(r.ok, true, r.error); // ผูกเครื่องปิดอยู่ → ยังลงเวลาได้ แต่ติดธง
+  assert.equal(logRows(env).at(-1)[10], '⚠️ เครื่องเดียวกับ มานี');
+  const dev = devRows(env).at(-1);
+  assert.deepEqual([dev[0], dev[2], dev[6], dev[7]], ['E01', 'M7Q2-K9XA', 'รออนุมัติ', 'ใช้ร่วมกับ มานี']);
+});
+
+test('[1] พนักงานใช้มือถือเครื่องใหม่ → ติดธง "เครื่องใหม่ (ปกติใช้ …)"', (env) => {
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.advance(10 * MIN);
+  assert.equal(punch(env, 'E01', '1234', 'OUT', { device: PHONE.somchaiNew }).ok, true);
+  assert.equal(logRows(env).at(-1)[10], '⚠️ เครื่องใหม่ (ปกติใช้ S4F8-B2KQ)');
+  env.advance(10 * MIN);
+  assert.equal(punch(env, 'E01', '1234', 'IN', { device: PHONE.somchaiNew }).ok, true); // ยังไม่อนุมัติ → ยังติดธง
+  assert.match(logRows(env).at(-1)[10], /เครื่องใหม่/);
+  assert.equal(devRows(env).length, 2); // ไม่ลงทะเบียนซ้ำ
+});
+
+test('[1] ไม่มีรหัสเครื่อง (เช่นโหมดไม่ระบุตัวตน) → ติดธง', (env) => {
+  const r = punch(env, 'E01', '1234', 'IN', { device: { id: 'bad' } });
+  assert.equal(r.ok, true);
+  assert.equal(logRows(env)[0][10], '⚠️ ไม่มีรหัสเครื่อง');
+});
+
+// ───────── ข้อ 2: ผูกเครื่อง ─────────
+
+test('[2] เปิดผูกเครื่อง: เครื่องแรกใช้ได้เลย เครื่องของคนอื่นถูกบล็อกตั้งแต่ login', (env) => {
+  env.setSetting('DEVICE_LOCK', 'TRUE');
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  const { boot } = scan(env);
+  const r = env.run('apiLogin', boot.pass, 'E01', '1234', PHONE.manee);
+  assert.equal(r.code, 'DEVICE');
+  assert.match(r.error, /ยังไม่ได้รับอนุมัติสำหรับ สมชาย.*M7Q2-K9XA/);
+  const p = env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO, device: PHONE.manee });
+  assert.equal(p.code, 'DEVICE');
+  assert.equal(logRows(env).length, 1); // ไม่ได้บันทึก
+});
+
+test('[2] เปิดผูกเครื่อง: เปลี่ยนมือถือ → รออนุมัติ → เจ้าของร้านอนุมัติ → ใช้ได้', (env) => {
+  env.setSetting('DEVICE_LOCK', 'TRUE');
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.advance(10 * MIN);
+  assert.equal(punch(env, 'E01', '1234', 'OUT', { device: PHONE.somchaiNew }).code, 'DEVICE');
+
+  const day = env.run('apiReviewDay', '9999', '');
+  assert.equal(day.pending.length, 1);
+  const d = day.pending[0];
+  assert.deepEqual([d.empName, d.deviceId, d.note], ['สมชาย', 'X9PD-A3RT', 'เครื่องใหม่']);
+  assert.equal(env.run('apiReviewDevice', '9999', d.row, 'WRONG-ID', d.empId, 'OK').ok, false);
+  assert.deepEqual(env.run('apiReviewDevice', '9999', d.row, d.deviceId, d.empId, 'OK').pending, []);
+
+  const r = punch(env, 'E01', '1234', 'OUT', { device: PHONE.somchaiNew });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(logRows(env).at(-1)[10], ''); // อนุมัติแล้ว → ไม่ติดธง
+});
+
+test('[2] เจ้าของร้านกด "ไม่อนุมัติ" → เครื่องนั้นใช้ไม่ได้ และไม่ถามซ้ำ', (env) => {
+  env.setSetting('DEVICE_LOCK', 'TRUE');
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  punch(env, 'E01', '1234', 'IN', { device: PHONE.manee });
+  const d = env.run('apiReviewDay', '9999', '').pending[0];
+  env.run('apiReviewDevice', '9999', d.row, d.deviceId, d.empId, 'NO');
+  assert.equal(env.run('apiReviewDay', '9999', '').pending.length, 0);
+  const r = punch(env, 'E01', '1234', 'IN', { device: PHONE.manee });
+  assert.match(r.error, /ไม่ได้รับอนุญาต/);
+});
+
+test('[2] เปิดผูกเครื่อง + ไม่มีรหัสเครื่อง → ลงเวลาไม่ได้', (env) => {
+  env.setSetting('DEVICE_LOCK', 'TRUE');
+  assert.equal(punch(env, 'E01', '1234', 'IN', { device: null }).code, 'DEVICE');
+});
+
+// ───────── ข้อ 3: รูปเซลฟี่บนหน้าจอร้าน ─────────
+
+test('[3] หน้าจอร้านได้รายการใหม่พร้อมรูปย่อ เฉพาะที่ใหม่กว่า since', (env) => {
+  const init = env.run('apiKioskInit', '9999');
+  assert.equal(init.kioskPhoto, true);
+  assert.deepEqual(env.run('apiKioskFeed', '9999', init.feedTs).items, []);
+  env.advance(1000);
+  assert.equal(punch(env, 'E02', '0042', 'IN', { thumb: THUMB }).ok, true);
+  const f = env.run('apiKioskFeed', '9999', init.feedTs);
+  assert.equal(f.items.length, 1);
+  assert.deepEqual([f.items[0].name, f.items[0].label, f.items[0].kiosk, f.items[0].thumb], ['มานี', 'เข้างาน', false, THUMB]);
+  assert.deepEqual(env.run('apiKioskFeed', '9999', f.items[0].ts).items, []);
+  assert.equal(env.run('apiKioskFeed', '0000', 0).code, 'ADMIN');
+});
+
+test('[3] ปิด KIOSK_PHOTO → ไม่ส่งรูป, รูปย่อผิดรูปแบบไม่ถูกเก็บ', (env) => {
+  env.setSetting('KIOSK_PHOTO', 'FALSE');
+  punch(env, 'E02', '0042', 'IN', { thumb: THUMB });
+  assert.equal(env.run('apiKioskFeed', '9999', 0).items[0].thumb, '');
+  env.setSetting('KIOSK_PHOTO', 'TRUE');
+  env.advance(5 * MIN);
+  punch(env, 'E01', '1234', 'IN', { thumb: 'javascript:alert(1)' });
+  const items = env.run('apiKioskFeed', '9999', 0).items;
+  assert.equal(items.at(-1).thumb, '');
+});
+
+// ───────── ข้อ 4: หน้าตรวจรูป ─────────
+
+test('[4] หน้าตรวจรูป: รายการของวัน + ธง + โหลดรูปได้เฉพาะแถวที่ตรงกับชีต', (env) => {
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  assert.equal(punch(env, 'E01', '1234', 'IN', { device: PHONE.manee }).ok, true);
+  assert.equal(env.run('apiReviewDay', '1111', '').code, 'ADMIN');
+
+  const r = env.run('apiReviewDay', '9999', '');
+  assert.equal(r.day, '2026-11-23');
+  assert.equal(r.label, '23 พ.ย. 2569');
+  assert.deepEqual(r.entries.map((e) => [e.name, e.label, e.flags, e.hasPhoto]), [
+    ['มานี', 'เข้างาน', '', true],
+    ['สมชาย', 'เข้างาน', '⚠️ เครื่องเดียวกับ มานี', true],
+  ]);
+  assert.equal(r.pending.length, 1);
+
+  const e = r.entries[1];
+  const ph = env.run('apiReviewPhotos', '9999', [{ row: e.row, ts: e.ts }, { row: e.row, ts: e.ts + 1 }, { row: 999, ts: 0 }]);
+  assert.deepEqual(Object.keys(ph.photos), [String(e.row)]);
+  assert.equal(ph.photos[e.row], PHOTO);
+
+  assert.deepEqual(env.run('apiReviewDay', '9999', '2026-11-22').entries, []);
+});
+
+// ───────── สรุปรายเดือน ─────────
+
+test('สรุปรายเดือน: กะดึกข้ามเที่ยงคืน, มาสาย, ลืมลงเวลาออก, รายการน่าสงสัย', (env) => {
   // 23 พ.ย. สมชายเข้า 16:10 (สาย 10 นาที) ออก 00:30 ของวันถัดไป
   env.clock.now = Date.parse('2026-11-23T09:10:00Z');
   assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
@@ -184,19 +352,25 @@ test('สรุปรายเดือน: กะดึกข้ามเที
   env.clock.now = Date.parse('2026-11-24T16:00:00Z');
   assert.equal(punch(env, 'E02', '0042', 'OUT').ok, true);
   env.clock.now = Date.parse('2026-11-24T16:50:00Z');
-  assert.equal(punch(env, 'E01', '1234', 'OUT').ok, true);
+  assert.equal(punch(env, 'E01', '1234', 'OUT', { device: PHONE.manee }).ok, true); // มานีกดออกงานแทน
 
   env.clock.now = Date.parse('2026-12-01T03:00:00Z');
   const name = env.ctx.buildMonthlySummary_('2026-11');
   assert.equal(name, 'สรุป 2026-11');
   const data = env.sheets[name].data;
-  const totals = data.slice(3, 5);
-  assert.deepEqual(totals[0], ['E01', 'สมชาย', 2, 16.33, 10, 1, 0]);
-  assert.deepEqual(totals[1], ['E02', 'มานี', 2, 5.67, 20, 1, 1]);
+  const after = (title) => data.findIndex((r) => r && r[0] === title);
 
-  const detailStart = data.findIndex((r) => r && r[0] === 'วันที่');
-  const detail = data.slice(detailStart + 1).filter(Boolean);
-  assert.deepEqual(detail, [
+  assert.deepEqual(data.slice(3, 5), [
+    ['E01', 'สมชาย', 2, 16.33, 10, 1, 0],
+    ['E02', 'มานี', 2, 5.67, 20, 1, 1],
+  ]);
+
+  const s = after('⚠️ รายการน่าสงสัย (1)');
+  assert.ok(s > 0, 'มีหัวข้อรายการน่าสงสัย');
+  assert.deepEqual(data[s + 2], ['2026-11-24', '23:50', 'E01', 'สมชาย', 'ออกงาน', 'M7Q2-K9XA', '⚠️ เครื่องเดียวกับ มานี']);
+
+  const d = after('รายละเอียดรายวัน');
+  assert.deepEqual(data.slice(d + 2).filter(Boolean), [
     ['2026-11-23', 'E01', 'สมชาย', '16:10', '00:30', 8.33, 10, ''],
     ['2026-11-23', 'E02', 'มานี', '16:55', '', '', 0, 'ลืมลงเวลาออก'],
     ['2026-11-24', 'E01', 'สมชาย', '15:50', '23:50', 8, 0, ''],

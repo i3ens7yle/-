@@ -4,24 +4,31 @@
  *  - หน้าจอร้าน (Kiosk) แสดง QR ที่เปลี่ยนทุก 30 วินาที → ถ่ายรูปเก็บไว้สแกนทีหลังไม่ได้
  *  - พนักงานสแกนด้วยมือถือตัวเอง → เลือกชื่อ → ใส่ PIN → ถ่ายเซลฟี่ → กดเข้า/ออกงาน
  *  - คนที่ไม่มีมือถือ กดปุ่ม "ลงเวลาที่เครื่องนี้" บนหน้าจอร้านได้เลย
+ *  - กันลงเวลาแทนกัน: รหัสประจำเครื่อง + เตือนอัตโนมัติ, ผูกเครื่อง (เลือกเปิด),
+ *    รูปเซลฟี่ขึ้นบนหน้าจอร้าน, หน้า "ตรวจรูป" สำหรับเจ้าของร้าน
  *  - ข้อมูลทั้งหมดเก็บใน Google Sheet นี้ รูปเซลฟี่เก็บใน Google Drive
  *
  * วิธีติดตั้งดูใน README.md
  */
 
 const TZ = 'Asia/Bangkok';
-const SHEETS = { EMP: 'พนักงาน', LOG: 'บันทึกเวลา', SET: 'ตั้งค่า' };
+const SHEETS = { EMP: 'พนักงาน', LOG: 'บันทึกเวลา', DEV: 'อุปกรณ์', SET: 'ตั้งค่า' };
 const EMP_HEADERS = ['รหัส', 'ชื่อ', 'PIN', 'เวลาเริ่มงาน', 'สถานะ'];
-const LOG_HEADERS = ['เวลาบันทึก', 'วันที่', 'เวลา', 'รหัส', 'ชื่อ', 'ประเภท', 'ช่องทาง', 'รูป', 'อุปกรณ์'];
+const LOG_HEADERS = ['เวลาบันทึก', 'วันที่', 'เวลา', 'รหัส', 'ชื่อ', 'ประเภท', 'ช่องทาง', 'รูป', 'อุปกรณ์', 'รหัสเครื่อง', 'ตรวจสอบ'];
+const DEV_HEADERS = ['รหัสพนักงาน', 'ชื่อ', 'รหัสเครื่อง', 'รุ่นเครื่อง', 'เห็นครั้งแรก', 'ใช้ล่าสุด', 'สถานะ', 'หมายเหตุ'];
+const DEV_STATUS = { OK: 'อนุมัติ', PENDING: 'รออนุมัติ', NO: 'ไม่อนุมัติ' };
+const DEVICE_RE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 const TYPE_LABEL = { IN: 'เข้างาน', OUT: 'ออกงาน' };
 const CHANNEL = { PHONE: 'มือถือพนักงาน', KIOSK: 'เครื่องของร้าน' };
 const SETTING_DEFAULTS = [
   ['SHOP_NAME', 'ร้านของเรา', 'ชื่อร้านที่แสดงบนหน้าจอ'],
-  ['ADMIN_PIN', '9999', 'รหัสเปิดหน้าจอร้าน (Kiosk) — เปลี่ยนทันทีหลังติดตั้ง!'],
+  ['ADMIN_PIN', '9999', 'รหัสเปิดหน้าจอร้านและหน้าตรวจรูป — เปลี่ยนทันทีหลังติดตั้ง!'],
   ['QR_SECONDS', 30, 'QR บนหน้าจอร้านเปลี่ยนทุกกี่วินาที (10–300)'],
   ['REQUIRE_PHOTO', 'TRUE', 'บังคับถ่ายเซลฟี่ตอนลงเวลา (TRUE/FALSE)'],
   ['MIN_GAP_MINUTES', 2, 'กันกดซ้ำ: ลงเวลาประเภทเดิมซ้ำได้หลังผ่านไปกี่นาที'],
   ['MAX_SHIFT_HOURS', 16, 'ถ้าเข้า–ออกห่างกันเกินกี่ชั่วโมง ถือว่าลืมลงเวลาออก'],
+  ['DEVICE_LOCK', 'FALSE', 'ผูกเครื่อง: TRUE = ลงเวลาได้เฉพาะมือถือที่อนุมัติแล้ว (แนะนำเปิดหลังใช้ไป 1 สัปดาห์)'],
+  ['KIOSK_PHOTO', 'TRUE', 'แสดงรูปเซลฟี่บนหน้าจอร้าน 5 วินาทีหลังมีคนลงเวลา (TRUE/FALSE)'],
 ];
 const PASS_MINUTES = 5;      // หลังสแกน QR มีเวลากรอก PIN/ถ่ายรูปกี่นาที
 const MAX_PIN_FAILS = 5;     // ใส่ PIN ผิดเกินนี้ ล็อก 10 นาที
@@ -35,10 +42,11 @@ const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('⏱ ระบบลงเวลา')
-    .addItem('1) ตั้งค่าเริ่มต้น (ทำครั้งแรกครั้งเดียว)', 'setup')
-    .addItem('2) ดูลิงก์หน้าจอร้าน (Kiosk)', 'showLinks')
+    .addItem('1) ตั้งค่าเริ่มต้น (ทำครั้งแรก / หลังอัปเดตโค้ด)', 'setup')
+    .addItem('2) ดูลิงก์หน้าจอร้าน และหน้าตรวจรูป', 'showLinks')
     .addSeparator()
     .addItem('สร้างสรุปรายเดือน', 'promptMonthlySummary')
+    .addItem('อนุมัติเครื่องที่รออยู่ทั้งหมด', 'approveAllPending')
     .addItem('เปลี่ยนรหัสลับของ QR', 'rotateSecret')
     .addToUi();
 }
@@ -60,6 +68,8 @@ function setup() {
   const log = ensureSheet_(SHEETS.LOG, LOG_HEADERS);
   log.getRange('A:A').setNumberFormat('yyyy-mm-dd hh:mm:ss');
   log.getRange('B:C').setNumberFormat('@');
+
+  devValidation_(ensureSheet_(SHEETS.DEV, DEV_HEADERS));
 
   const set = ensureSheet_(SHEETS.SET, ['ชื่อค่า', 'ค่า', 'คำอธิบาย']);
   const have = {};
@@ -86,14 +96,14 @@ function showLinks() {
     ui.alert('ยังไม่ได้ Deploy เป็นเว็บแอป — ทำตามขั้นตอนใน README ก่อน');
     return;
   }
-  const kiosk = url + '?page=kiosk';
+  const link = function (u) { return '<a href="' + u + '" target="_blank" style="word-break:break-all">' + u + '</a>'; };
   const html = HtmlService.createHtmlOutput(
     '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
-    '<p>เปิดลิงก์นี้บน <b>แท็บเล็ต/มือถือของร้าน</b> แล้วใส่ ADMIN_PIN:</p>' +
-    '<p><a href="' + kiosk + '" target="_blank" style="word-break:break-all">' + kiosk + '</a></p>' +
-    '<p style="color:#666">ไม่ต้องส่งลิงก์นี้ให้พนักงาน — พนักงานแค่สแกน QR ที่ขึ้นบนหน้าจอร้าน</p></div>'
-  ).setWidth(560).setHeight(220);
-  ui.showModalDialog(html, 'ลิงก์หน้าจอร้าน');
+    '<p><b>หน้าจอร้าน</b> — เปิดบนแท็บเล็ตของร้าน แล้วใส่ ADMIN_PIN:<br>' + link(url + '?page=kiosk') + '</p>' +
+    '<p><b>ตรวจรูป / อนุมัติเครื่อง</b> — สำหรับเจ้าของร้าน เปิดบนมือถือตัวเองได้:<br>' + link(url + '?page=review') + '</p>' +
+    '<p style="color:#666">ไม่ต้องส่งลิงก์เหล่านี้ให้พนักงาน — พนักงานแค่สแกน QR ที่ขึ้นบนหน้าจอร้าน</p></div>'
+  ).setWidth(580).setHeight(300);
+  ui.showModalDialog(html, 'ลิงก์ของระบบ');
 }
 
 function promptMonthlySummary() {
@@ -106,6 +116,17 @@ function promptMonthlySummary() {
   const name = buildMonthlySummary_(month);
   ss_().getSheetByName(name).activate();
   ui.alert('สร้างแท็บ "' + name + '" แล้ว');
+}
+
+function approveAllPending() {
+  const ui = SpreadsheetApp.getUi();
+  const pending = readDevices_().filter(function (d) { return d.status === DEV_STATUS.PENDING; });
+  if (!pending.length) { ui.alert('ไม่มีเครื่องที่รออนุมัติ'); return; }
+  const list = pending.map(function (d) { return '• ' + d.empName + ' — ' + d.deviceId + ' (' + d.deviceName + ')' + (d.note ? ' ' + d.note : ''); }).join('\n');
+  const ok = ui.alert('อนุมัติทั้งหมด ' + pending.length + ' เครื่อง?', list, ui.ButtonSet.OK_CANCEL);
+  if (ok !== ui.Button.OK) return;
+  pending.forEach(function (d) { setDeviceStatus_(d, DEV_STATUS.OK); });
+  ui.alert('อนุมัติแล้ว ' + pending.length + ' เครื่อง');
 }
 
 function rotateSecret() {
@@ -123,12 +144,9 @@ function rotateSecret() {
 function doGet(e) {
   const p = (e && e.parameter) || {};
   const cfg = getSettings_();
-  const boot = {
-    mode: p.page === 'kiosk' ? 'kiosk' : 'punch',
-    shopName: String(cfg.SHOP_NAME),
-    requirePhoto: cfg.REQUIRE_PHOTO,
-  };
-  if (boot.mode === 'punch') {
+  const mode = p.page === 'kiosk' || p.page === 'review' ? p.page : 'punch';
+  const boot = { mode: mode, shopName: cfg.SHOP_NAME, requirePhoto: cfg.REQUIRE_PHOTO };
+  if (mode === 'punch') {
     try {
       if (!p.t) throw userError_('กรุณาสแกน QR Code ที่หน้าจอของร้านเพื่อลงเวลา');
       verifyQrToken_(p.t, cfg);
@@ -137,10 +155,11 @@ function doGet(e) {
       boot.error = err.message;
     }
   }
+  const titles = { kiosk: 'หน้าจอลงเวลา · ', review: 'ตรวจรูปลงเวลา · ', punch: 'ลงเวลา · ' };
   const t = HtmlService.createTemplateFromFile('Index');
   t.bootJson = JSON.stringify(boot).replace(/</g, '\\u003c');
   return t.evaluate()
-    .setTitle((boot.mode === 'kiosk' ? 'หน้าจอลงเวลา · ' : 'ลงเวลา · ') + boot.shopName)
+    .setTitle(titles[mode] + boot.shopName)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
 }
 
@@ -153,11 +172,13 @@ function apiEmployees(pass) {
   });
 }
 
-function apiLogin(pass, empId, pin) {
+function apiLogin(pass, empId, pin, device) {
   return api_(function () {
     const cfg = getSettings_();
     verifyPass_(pass);
-    return loginResult_(authEmployee_(empId, pin), cfg);
+    const emp = authEmployee_(empId, pin);
+    deviceGate_(emp, device, cfg, false);
+    return loginResult_(emp, cfg);
   });
 }
 
@@ -167,7 +188,8 @@ function apiPunch(req) {
     const cfg = getSettings_();
     verifyPass_(req.pass);
     const emp = authEmployee_(req.empId, req.pin);
-    const res = recordPunch_(emp, req, CHANNEL.PHONE, cfg);
+    const dev = deviceGate_(emp, req.device, cfg, true);
+    const res = recordPunch_(emp, req, CHANNEL.PHONE, cfg, dev);
     CacheService.getScriptCache().put('used_' + req.pass, '1', 21600);
     return res;
   });
@@ -180,11 +202,13 @@ function apiKioskInit(adminPin) {
     const cfg = getSettings_();
     checkAdmin_(adminPin, cfg);
     return {
-      shopName: String(cfg.SHOP_NAME),
+      shopName: cfg.SHOP_NAME,
       requirePhoto: cfg.REQUIRE_PHOTO,
+      kioskPhoto: cfg.KIOSK_PHOTO,
       qr: qrPayload_(cfg),
       board: board_(cfg),
       employees: publicEmployees_(),
+      feedTs: Date.now(),
     };
   });
 }
@@ -194,6 +218,23 @@ function apiKioskRefresh(adminPin) {
     const cfg = getSettings_();
     checkAdmin_(adminPin, cfg);
     return { qr: qrPayload_(cfg), board: board_(cfg) };
+  });
+}
+
+/** รายการลงเวลาใหม่ตั้งแต่ since (ms) พร้อมรูปย่อ — หน้าจอร้านเรียกทุก ~5 วินาที (อ่านจาก cache ไม่แตะชีต) */
+function apiKioskFeed(adminPin, since) {
+  return api_(function () {
+    const cfg = getSettings_();
+    checkAdmin_(adminPin, cfg);
+    const cache = CacheService.getScriptCache();
+    const items = readFeed_(cache).filter(function (i) { return i.ts > Number(since || 0); });
+    const keys = cfg.KIOSK_PHOTO ? items.map(function (i) { return i.tk; }).filter(String) : [];
+    const thumbs = keys.length ? cache.getAll(keys) : {};
+    return {
+      items: items.map(function (i) {
+        return { ts: i.ts, name: i.name, type: i.type, label: i.label, time: i.time, kiosk: i.kiosk, thumb: thumbs[i.tk] || '' };
+      }),
+    };
   });
 }
 
@@ -211,7 +252,73 @@ function apiKioskPunch(req) {
     const cfg = getSettings_();
     checkAdmin_(req.adminPin, cfg);
     const emp = authEmployee_(req.empId, req.pin);
-    return recordPunch_(emp, req, CHANNEL.KIOSK, cfg);
+    return recordPunch_(emp, req, CHANNEL.KIOSK, cfg, { id: '', name: 'แท็บเล็ตร้าน', flags: [] });
+  });
+}
+
+// ── API หน้าตรวจรูป สำหรับเจ้าของร้าน (ต้องมี ADMIN_PIN) ──
+
+function apiReviewDay(adminPin, day) {
+  return api_(function () {
+    const cfg = getSettings_();
+    checkAdmin_(adminPin, cfg);
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? String(day) : dayOf_(Date.now());
+    const entries = readLogs_(0)
+      .filter(function (l) { return dayOf_(l.ts) === d; })
+      .sort(function (a, b) { return a.ts - b.ts; })
+      .map(function (l) {
+        return {
+          row: l.rowNum, ts: l.ts, id: l.id, name: l.name, type: l.type, label: TYPE_LABEL[l.type],
+          time: Utilities.formatDate(new Date(l.ts), TZ, 'HH:mm:ss'),
+          kiosk: l.channel === CHANNEL.KIOSK, deviceId: l.deviceId, deviceName: l.deviceName,
+          flags: l.flags, hasPhoto: !!driveId_(l.photo), url: l.photo,
+        };
+      });
+    return {
+      day: d,
+      label: thaiDate_(Date.parse(d + 'T12:00:00+07:00')),
+      today: dayOf_(Date.now()),
+      deviceLock: cfg.DEVICE_LOCK,
+      entries: entries,
+      pending: pendingDevices_(),
+    };
+  });
+}
+
+/** รูปเซลฟี่ของแถวที่ขอ (สูงสุด 8 รูป/ครั้ง) — ต้องส่ง row + ts ให้ตรงกับชีต จึงขอรูปอื่นใน Drive ไม่ได้ */
+function apiReviewPhotos(adminPin, items) {
+  return api_(function () {
+    const cfg = getSettings_();
+    checkAdmin_(adminPin, cfg);
+    const sh = sheet_(SHEETS.LOG);
+    const last = sh.getLastRow();
+    const photos = {};
+    (items || []).slice(0, 8).forEach(function (it) {
+      const row = Number(it && it.row);
+      if (!(row >= 2 && row <= last)) return;
+      const v = sh.getRange(row, 1, 1, 8).getValues()[0];
+      const ts = v[0] instanceof Date ? v[0].getTime() : NaN;
+      const id = driveId_(v[7]);
+      if (ts !== Number(it.ts) || !id) return;
+      try {
+        const blob = DriveApp.getFileById(id).getBlob();
+        photos[row] = 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+      } catch (e) { /* ไฟล์ถูกลบ */ }
+    });
+    return { photos: photos };
+  });
+}
+
+function apiReviewDevice(adminPin, row, deviceId, empId, decision) {
+  return api_(function () {
+    const cfg = getSettings_();
+    checkAdmin_(adminPin, cfg);
+    const d = readDevices_().filter(function (x) {
+      return x.rowNum === Number(row) && x.deviceId === deviceId && x.empId === empId;
+    })[0];
+    if (!d) throw userError_('ไม่พบรายการนี้ (อาจถูกแก้ในชีตไปแล้ว) กรุณารีเฟรชหน้า');
+    setDeviceStatus_(d, decision === 'OK' ? DEV_STATUS.OK : DEV_STATUS.NO);
+    return { pending: pendingDevices_() };
   });
 }
 
@@ -242,11 +349,13 @@ function sheet_(name) {
   return sh;
 }
 
+/** สร้างแท็บถ้ายังไม่มี และเขียนหัวตารางให้ตรงกับเวอร์ชันล่าสุด (เพิ่มคอลัมน์ใหม่ต่อท้ายได้โดยข้อมูลเดิมไม่เสีย) */
 function ensureSheet_(name, headers) {
   const ss = ss_();
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
-  if (sh.getLastRow() === 0) {
+  const cur = sh.getLastRow() ? sh.getRange(1, 1, 1, headers.length).getValues()[0] : [];
+  if (cur.join('|') !== headers.join('|')) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#efeae0');
     sh.setFrozenRows(1);
   }
@@ -261,6 +370,8 @@ function clampNum_(v, min, max, def) {
   return Math.min(max, Math.max(min, n));
 }
 
+function bool_(v) { return v === true || String(v).trim().toUpperCase() === 'TRUE'; }
+
 function getSettings_() {
   const s = {};
   SETTING_DEFAULTS.forEach(function (row) { s[row[0]] = row[1]; });
@@ -274,9 +385,11 @@ function getSettings_() {
   s.SHOP_NAME = String(s.SHOP_NAME).trim() || 'ร้านของเรา';
   s.ADMIN_PIN = String(s.ADMIN_PIN).trim();
   s.QR_SECONDS = Math.round(clampNum_(s.QR_SECONDS, 10, 300, 30));
-  s.REQUIRE_PHOTO = String(s.REQUIRE_PHOTO).trim().toUpperCase() === 'TRUE';
+  s.REQUIRE_PHOTO = bool_(s.REQUIRE_PHOTO);
   s.MIN_GAP_MINUTES = clampNum_(s.MIN_GAP_MINUTES, 0, 120, 2);
   s.MAX_SHIFT_HOURS = clampNum_(s.MAX_SHIFT_HOURS, 4, 24, 16);
+  s.DEVICE_LOCK = bool_(s.DEVICE_LOCK);
+  s.KIOSK_PHOTO = bool_(s.KIOSK_PHOTO);
   return s;
 }
 
@@ -388,9 +501,129 @@ function checkAdmin_(pin, cfg) {
   if (fails >= MAX_ADMIN_FAILS) throw userError_('ใส่รหัสผิดหลายครั้งเกินไป กรุณารอ 10 นาที', 'ADMIN');
   if (!cfg.ADMIN_PIN || String(pin || '').trim() !== cfg.ADMIN_PIN) {
     cache.put('fail_admin', String(fails + 1), 600);
-    throw userError_('รหัสหน้าจอร้าน (ADMIN_PIN) ไม่ถูกต้อง', 'ADMIN');
+    throw userError_('รหัส ADMIN_PIN ไม่ถูกต้อง', 'ADMIN');
   }
   if (fails) cache.remove('fail_admin');
+}
+
+// ── อุปกรณ์ (รหัสประจำเครื่อง + ผูกเครื่อง) ──
+
+function devValidation_(sh) {
+  sh.getRange('G2:G').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList([DEV_STATUS.OK, DEV_STATUS.PENDING, DEV_STATUS.NO], true)
+    .setAllowInvalid(false)
+    .build());
+  sh.getRange('E2:F').setNumberFormat('yyyy-mm-dd hh:mm');
+}
+
+function devSheet_() {
+  let sh = ss_().getSheetByName(SHEETS.DEV);
+  if (!sh) {
+    sh = ensureSheet_(SHEETS.DEV, DEV_HEADERS);
+    devValidation_(sh);
+  }
+  return sh;
+}
+
+function readDevices_() {
+  const sh = ss_().getSheetByName(SHEETS.DEV);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().map(function (r, i) {
+    const st = String(r[6]).trim();
+    return {
+      rowNum: i + 2,
+      empId: String(r[0]).trim(),
+      empName: String(r[1]).trim(),
+      deviceId: String(r[2]).trim().toUpperCase(),
+      deviceName: String(r[3]).trim(),
+      firstSeen: r[4] instanceof Date ? r[4].getTime() : NaN,
+      status: st === DEV_STATUS.OK || st === DEV_STATUS.NO ? st : DEV_STATUS.PENDING,
+      note: String(r[7]).trim(),
+    };
+  }).filter(function (d) { return d.empId && d.deviceId; });
+}
+
+function pendingDevices_() {
+  return readDevices_()
+    .filter(function (d) { return d.status === DEV_STATUS.PENDING; })
+    .map(function (d) {
+      return {
+        row: d.rowNum, empId: d.empId, empName: d.empName, deviceId: d.deviceId, deviceName: d.deviceName,
+        firstSeen: isNaN(d.firstSeen) ? '' : describeWhen_(d.firstSeen), note: d.note,
+      };
+    });
+}
+
+function setDeviceStatus_(d, status) {
+  const by = (status === DEV_STATUS.OK ? 'อนุมัติ' : 'ไม่อนุมัติ') + 'โดยเจ้าของร้าน ' +
+    Utilities.formatDate(new Date(), TZ, 'dd/MM HH:mm');
+  devSheet_().getRange(d.rowNum, 7, 1, 2).setValues([[status, d.note ? d.note + ' · ' + by : by]]);
+}
+
+function cleanDevice_(device) {
+  const id = String((device && device.id) || '').trim().toUpperCase();
+  if (!DEVICE_RE.test(id)) return null;
+  return { id: id, name: String((device && device.name) || '').slice(0, 60) };
+}
+
+/**
+ * ตรวจเครื่องที่ใช้ลงเวลา + ลงทะเบียนเครื่องใหม่ในแท็บ "อุปกรณ์"
+ * - เครื่องแรกของพนักงาน (และไม่มีคนอื่นเคยใช้) → อนุมัติอัตโนมัติ
+ * - เครื่องที่คนอื่นเคยใช้ / เครื่องที่สองขึ้นไป → "รออนุมัติ" + ติดธงเตือน
+ * - ถ้าเปิด DEVICE_LOCK เครื่องที่ยังไม่อนุมัติจะลงเวลาไม่ได้
+ */
+function deviceGate_(emp, device, cfg, touch) {
+  const dev = cleanDevice_(device);
+  if (!dev) {
+    if (cfg.DEVICE_LOCK) {
+      throw userError_('เบราว์เซอร์นี้จำรหัสเครื่องไม่ได้ (อาจเปิดโหมดไม่ระบุตัวตนอยู่) กรุณาสแกนด้วยกล้องมือถือแล้วเปิดในเบราว์เซอร์ปกติ', 'DEVICE');
+    }
+    return { id: '', name: '', flags: ['⚠️ ไม่มีรหัสเครื่อง'] };
+  }
+
+  const flags = [];
+  let status;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sh = devSheet_();
+    const rows = readDevices_();
+    const mine = rows.filter(function (r) { return r.empId === emp.id; });
+    const others = rows.filter(function (r) { return r.deviceId === dev.id && r.empId !== emp.id; });
+    const otherNames = others.map(function (r) { return r.empName; })
+      .filter(function (n, i, a) { return a.indexOf(n) === i; });
+    const approvedMine = mine.filter(function (r) { return r.status === DEV_STATUS.OK; });
+    const row = mine.filter(function (r) { return r.deviceId === dev.id; })[0];
+    const now = new Date();
+
+    if (!row) {
+      const auto = !approvedMine.length && !others.length;
+      status = auto ? DEV_STATUS.OK : DEV_STATUS.PENDING;
+      const note = auto ? 'เครื่องแรก (อนุมัติอัตโนมัติ)'
+        : others.length ? 'ใช้ร่วมกับ ' + otherNames.join(', ') : 'เครื่องใหม่';
+      sh.appendRow([emp.id, emp.name, dev.id, dev.name, now, now, status, note]);
+    } else {
+      status = row.status;
+      if (touch) sh.getRange(row.rowNum, 6).setValue(now);
+    }
+
+    if (others.length) flags.push('⚠️ เครื่องเดียวกับ ' + otherNames.join(', '));
+    if (status === DEV_STATUS.NO) flags.push('⚠️ เครื่องที่เจ้าของร้านไม่อนุมัติ');
+    else if (status === DEV_STATUS.PENDING && !others.length) {
+      const usual = approvedMine.map(function (r) { return r.deviceId; });
+      flags.push('⚠️ เครื่องใหม่' + (usual.length ? ' (ปกติใช้ ' + usual.join(', ') + ')' : ''));
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  if (cfg.DEVICE_LOCK && status !== DEV_STATUS.OK) {
+    throw userError_(status === DEV_STATUS.NO
+      ? 'มือถือเครื่องนี้ไม่ได้รับอนุญาตให้ลงเวลาของ ' + emp.name
+      : 'มือถือเครื่องนี้ยังไม่ได้รับอนุมัติสำหรับ ' + emp.name + ' — แจ้งเจ้าของร้านให้อนุมัติรหัสเครื่อง ' + dev.id + ' แล้วสแกนใหม่',
+      'DEVICE');
+  }
+  return { id: dev.id, name: dev.name, flags: flags };
 }
 
 // ── บันทึกเวลา ──
@@ -410,16 +643,25 @@ function describeWhen_(ts) {
   return Utilities.formatDate(new Date(ts), TZ, 'dd/MM') + ' ' + hm_(ts);
 }
 
+function driveId_(url) {
+  const m = /\/d\/([A-Za-z0-9_-]{10,})/.exec(String(url || ''));
+  return m ? m[1] : '';
+}
+
 /** อ่านบันทึกเวลา (maxRows = อ่านเฉพาะแถวท้ายสุด, 0 = ทั้งหมด) เรียงตามลำดับที่บันทึก */
 function readLogs_(maxRows) {
   const sh = sheet_(SHEETS.LOG);
   const last = sh.getLastRow();
   if (last < 2) return [];
   const start = maxRows ? Math.max(2, last - maxRows + 1) : 2;
-  return sh.getRange(start, 1, last - start + 1, 7).getValues().map(function (r) {
+  return sh.getRange(start, 1, last - start + 1, LOG_HEADERS.length).getValues().map(function (r, i) {
     const ts = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
     const type = r[5] === TYPE_LABEL.IN ? 'IN' : r[5] === TYPE_LABEL.OUT ? 'OUT' : '';
-    return { ts: ts, id: String(r[3]).trim(), name: String(r[4]).trim(), type: type, channel: String(r[6]) };
+    return {
+      rowNum: start + i, ts: ts, id: String(r[3]).trim(), name: String(r[4]).trim(), type: type,
+      channel: String(r[6]), photo: String(r[7]), deviceName: String(r[8]),
+      deviceId: String(r[9]).trim(), flags: String(r[10]).trim(),
+    };
   }).filter(function (l) { return l.id && l.type && !isNaN(l.ts); });
 }
 
@@ -448,7 +690,16 @@ function checkDuplicate_(emp, type, cfg) {
   }
 }
 
-function recordPunch_(emp, req, channel, cfg) {
+function cleanThumb_(t) {
+  const s = String(t || '');
+  return s.length < 90000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(s) ? s : '';
+}
+
+function readFeed_(cache) {
+  try { return JSON.parse(cache.get('feed') || '[]'); } catch (e) { return []; }
+}
+
+function recordPunch_(emp, req, channel, cfg, dev) {
   const type = req.type === 'IN' || req.type === 'OUT' ? req.type : null;
   if (!type) throw userError_('กรุณาเลือก เข้างาน หรือ ออกงาน');
   if (cfg.REQUIRE_PHOTO && !req.photo) throw userError_('กรุณาถ่ายเซลฟี่ก่อนลงเวลา', 'PHOTO');
@@ -456,27 +707,30 @@ function recordPunch_(emp, req, channel, cfg) {
 
   const now = new Date();
   const photoUrl = req.photo ? savePhoto_(req.photo, emp, type, now) : '';
+  const thumb = cleanThumb_(req.thumb);
+  const time = Utilities.formatDate(now, TZ, 'HH:mm:ss');
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     checkDuplicate_(emp, type, cfg);
     sheet_(SHEETS.LOG).appendRow([
-      now, dayOf_(now), Utilities.formatDate(now, TZ, 'HH:mm:ss'),
-      emp.id, emp.name, TYPE_LABEL[type], channel, photoUrl,
-      String(req.device || '').slice(0, 120),
+      now, dayOf_(now), time, emp.id, emp.name, TYPE_LABEL[type], channel, photoUrl,
+      dev.name, dev.id, dev.flags.join(' / '),
     ]);
     SpreadsheetApp.flush();
+
+    // ส่งให้หน้าจอร้านโชว์รูป (เก็บใน cache ชั่วคราว 15 นาที ไม่ลงชีต)
+    const cache = CacheService.getScriptCache();
+    const tk = thumb ? 'thumb_' + now.getTime() + '_' + emp.id : '';
+    if (tk) cache.put(tk, thumb, 900);
+    const feed = readFeed_(cache);
+    feed.push({ ts: now.getTime(), name: emp.name, type: type, label: TYPE_LABEL[type], time: hm_(now.getTime()), kiosk: channel === CHANNEL.KIOSK, tk: tk });
+    cache.put('feed', JSON.stringify(feed.slice(-15)), 3600);
   } finally {
     lock.releaseLock();
   }
-  return {
-    name: emp.name,
-    type: type,
-    label: TYPE_LABEL[type],
-    time: Utilities.formatDate(now, TZ, 'HH:mm:ss'),
-    date: thaiDate_(now.getTime()),
-  };
+  return { name: emp.name, type: type, label: TYPE_LABEL[type], time: time, date: thaiDate_(now.getTime()) };
 }
 
 function savePhoto_(dataUrl, emp, type, now) {
@@ -588,7 +842,8 @@ function pairShifts_(logs, employees, cfg) {
 function buildMonthlySummary_(month) {
   const cfg = getSettings_();
   const employees = readEmployees_();
-  const rows = pairShifts_(readLogs_(0), employees, cfg)
+  const logs = readLogs_(0);
+  const rows = pairShifts_(logs, employees, cfg)
     .filter(function (r) { return r.date.indexOf(month) === 0; })
     .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1; });
 
@@ -610,25 +865,34 @@ function buildMonthlySummary_(month) {
   sh.getRange(1, 1).setValue('สรุปเวลาทำงาน เดือน ' + THAI_MONTHS[mo - 1] + ' ' + (y + 543) +
     '  (สร้างเมื่อ ' + thaiDate_(Date.now()) + ' ' + hm_(Date.now()) + ')').setFontWeight('bold');
 
-  const head1 = ['รหัส', 'ชื่อ', 'วันที่มาทำงาน', 'ชั่วโมงรวม', 'มาสายรวม (นาที)', 'มาสาย (ครั้ง)', 'ลงเวลาไม่ครบ (ครั้ง)'];
+  function table(r, title, head, body, textCols) {
+    if (title) { sh.getRange(r, 1).setValue(title).setFontWeight('bold'); r++; }
+    sh.getRange(r, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground('#efeae0');
+    if (body.length) {
+      (textCols || []).forEach(function (c) { sh.getRange(r + 1, c, body.length, 1).setNumberFormat('@'); });
+      sh.getRange(r + 1, 1, body.length, head.length).setValues(body);
+    }
+    return r + 1 + Math.max(body.length, 1) + 1;
+  }
+
+  // 1) รวมรายคน
   const body1 = Object.keys(totals).sort().map(function (k) {
     const t = totals[k];
     return [t.id, t.name, Object.keys(t.days).length, Math.round(t.hours * 100) / 100, t.late, t.lateCount, t.missing];
   });
-  sh.getRange(3, 1, 1, head1.length).setValues([head1]).setFontWeight('bold').setBackground('#efeae0');
-  if (body1.length) sh.getRange(4, 1, body1.length, head1.length).setValues(body1);
+  let r = table(3, '', ['รหัส', 'ชื่อ', 'วันที่มาทำงาน', 'ชั่วโมงรวม', 'มาสายรวม (นาที)', 'มาสาย (ครั้ง)', 'ลงเวลาไม่ครบ (ครั้ง)'], body1);
 
-  const r2 = 4 + Math.max(body1.length, 1) + 2;
-  const head2 = ['วันที่', 'รหัส', 'ชื่อ', 'เข้างาน', 'ออกงาน', 'ชั่วโมง', 'สาย (นาที)', 'หมายเหตุ'];
-  const body2 = rows.map(function (r) { return [r.date, r.id, r.name, r.in, r.out, r.hours, r.late, r.note]; });
-  sh.getRange(r2 - 1, 1).setValue('รายละเอียดรายวัน').setFontWeight('bold');
-  sh.getRange(r2, 1, 1, head2.length).setValues([head2]).setFontWeight('bold').setBackground('#efeae0');
-  if (body2.length) {
-    // วันที่/เวลาเป็นข้อความ (ไม่ให้ Sheets แปลงเอง) ส่วนชั่วโมง/นาทีสายเป็นตัวเลขไว้รวมต่อได้
-    sh.getRange(r2 + 1, 1, body2.length, 1).setNumberFormat('@');
-    sh.getRange(r2 + 1, 4, body2.length, 2).setNumberFormat('@');
-    sh.getRange(r2 + 1, 1, body2.length, head2.length).setValues(body2);
-  }
+  // 2) รายการน่าสงสัย (ธงจากระบบตรวจเครื่อง)
+  const flagged = logs
+    .filter(function (l) { return l.flags && dayOf_(l.ts).indexOf(month) === 0; })
+    .map(function (l) { return [dayOf_(l.ts), hm_(l.ts), l.id, l.name, TYPE_LABEL[l.type], l.deviceId, l.flags]; });
+  r = table(r, '⚠️ รายการน่าสงสัย (' + flagged.length + ')',
+    ['วันที่', 'เวลา', 'รหัส', 'ชื่อ', 'ประเภท', 'รหัสเครื่อง', 'เรื่อง'], flagged, [1, 2]);
+
+  // 3) รายละเอียดรายวัน (วันที่/เวลาเป็นข้อความ ไม่ให้ Sheets แปลงเอง; ชั่วโมง/นาทีสายเป็นตัวเลขไว้รวมต่อได้)
+  const body2 = rows.map(function (x) { return [x.date, x.id, x.name, x.in, x.out, x.hours, x.late, x.note]; });
+  table(r, 'รายละเอียดรายวัน', ['วันที่', 'รหัส', 'ชื่อ', 'เข้างาน', 'ออกงาน', 'ชั่วโมง', 'สาย (นาที)', 'หมายเหตุ'], body2, [1, 4, 5]);
+
   sh.autoResizeColumns(1, 8);
   return name;
 }
