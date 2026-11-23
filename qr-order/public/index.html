@@ -62,6 +62,7 @@
   .order-card { background: var(--card); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
   .order-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--muted); font-size: 14px; }
   .order-card .it { display: flex; justify-content: space-between; gap: 8px; }
+  .done-tag { color: var(--good); font-weight: 600; font-size: 14px; white-space: nowrap; }
   .order-card.cancelled .it { text-decoration: line-through; color: var(--muted); }
   .note { color: var(--muted); font-size: 14px; margin-top: 4px; }
   .empty { text-align: center; color: var(--muted); padding: 24px 0; }
@@ -188,8 +189,8 @@ function renderOrders() {
   const list = TABLE_STATE.orders.slice().reverse();
   document.getElementById("ordersList").innerHTML = list.length ? list.map((o) => `
     <div class="order-card ${o.status}">
-      <div class="head"><span>ออร์เดอร์ #${o.no} · ${new Date(o.createdAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.</span><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
-      ${o.items.map((l) => `<div class="it"><span>${esc(l.name)} × ${l.qty}</span><span class="price">${baht(l.price * l.qty)}</span></div>`).join("")}
+      <div class="head"><span>ออร์เดอร์ #${o.no} · สั่งเมื่อ ${new Date(o.createdAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.</span><span class="badge s-${o.status}">${STATUS[o.status]}</span></div>
+      ${o.items.map((l) => `<div class="it"><span>${esc(l.name)} × ${l.qty}${l.done && o.status !== "cancelled" ? ` <span class="done-tag">✓ ได้แล้ว</span>` : ""}</span><span class="price">${baht(l.price * l.qty)}</span></div>`).join("")}
       ${o.note ? `<div class="note">หมายเหตุ: ${esc(o.note)}</div>` : ""}
     </div>`).join("") : `<div class="empty">ยังไม่ได้สั่งอะไร</div>`;
   document.getElementById("ordersTotal").textContent = baht(TABLE_STATE.total);

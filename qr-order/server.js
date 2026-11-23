@@ -33,6 +33,8 @@ function config() {
     tables: Math.max(1, Math.min(200, Number(c.tables) || 20)),
     // true = ลูกค้าสั่งได้เฉพาะโต๊ะที่พนักงานกด "เปิดโต๊ะ" แล้ว (กันคนถ่ายรูป QR ไปสั่งเล่นจากนอกร้าน)
     requireOpenTable: c.requireOpenTable !== false,
+    // เมนูที่ยังไม่ติ๊กว่า "ได้แล้ว" เกินกี่นาที ให้เด้งเตือนที่หน้าจอพนักงาน
+    lateMinutes: Math.max(1, Number(c.lateMinutes) || 20),
     staffPin: String(process.env.STAFF_PIN || c.staffPin || "1234"),
     publicUrl: (process.env.PUBLIC_URL || c.publicUrl || "").replace(/\/+$/, ""),
   };
@@ -158,7 +160,7 @@ app.post("/api/order", (req, res) => {
     if (!m || !(qty >= 1 && qty <= 99)) continue;
     if (sold.has(m.id)) return res.status(409).json({ error: `ขออภัย "${m.name}" หมดแล้ว` });
     // ราคาใช้จากเมนูฝั่งร้านเสมอ ไม่เชื่อราคาที่มาจากมือถือลูกค้า
-    lines.push({ id: m.id, name: m.name, price: Number(m.price) || 0, qty });
+    lines.push({ id: m.id, name: m.name, price: Number(m.price) || 0, qty, done: false });
   }
   if (!lines.length) return res.status(400).json({ error: "ยังไม่ได้เลือกรายการ" });
   if (lines.length > 50) return res.status(400).json({ error: "รายการเยอะเกินไป" });
@@ -229,7 +231,7 @@ app.get("/api/staff/state", staffOnly, (req, res) => {
       call: state.calls[t] || null,
     });
   }
-  res.json({ shopName: c.shopName, requireOpenTable: c.requireOpenTable, orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
+  res.json({ shopName: c.shopName, requireOpenTable: c.requireOpenTable, lateMinutes: c.lateMinutes, now: Date.now(), orders: openOrders(), tables, soldOut: state.soldOut, today: today() });
 });
 
 app.post("/api/staff/order/:id/status", staffOnly, (req, res) => {
@@ -238,6 +240,28 @@ app.post("/api/staff/order/:id/status", staffOnly, (req, res) => {
   if (!o) return res.status(404).json({ error: "ไม่พบออร์เดอร์" });
   if (!["new", "cooking", "served", "cancelled"].includes(status)) return res.status(400).json({ error: "สถานะไม่ถูกต้อง" });
   o.status = status;
+  o.updatedAt = Date.now();
+  // กด "เสิร์ฟแล้ว" ทั้งออร์เดอร์ = ติ๊กทุกเมนู
+  if (status === "served") for (const l of o.items) if (!l.done) (l.done = true), (l.doneAt = o.updatedAt);
+  save();
+  broadcast(o.table);
+  res.json(o);
+});
+
+// ติ๊กทีละเมนูว่า "ได้แล้ว" ครบทุกเมนู = ออร์เดอร์เสิร์ฟแล้วอัตโนมัติ
+app.post("/api/staff/order/:id/item/:idx", staffOnly, (req, res) => {
+  const o = state.orders.find((x) => x.id === req.params.id);
+  if (!o) return res.status(404).json({ error: "ไม่พบออร์เดอร์" });
+  if (o.status === "cancelled") return res.status(400).json({ error: "ออร์เดอร์นี้ถูกยกเลิกแล้ว" });
+  const l = o.items[Number(req.params.idx)];
+  if (!l) return res.status(404).json({ error: "ไม่พบรายการ" });
+  const done = !!(req.body && req.body.done);
+  l.done = done;
+  if (done) l.doneAt = Date.now();
+  else delete l.doneAt;
+  const all = o.items.every((x) => x.done);
+  if (all) o.status = "served";
+  else if (o.status === "served" || (o.status === "new" && done)) o.status = "cooking";
   o.updatedAt = Date.now();
   save();
   broadcast(o.table);

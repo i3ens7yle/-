@@ -4,6 +4,7 @@
   "logo": "/logo.jpg",
   "tables": 20,
   "requireOpenTable": true,
+  "lateMinutes": 20,
   "staffPin": "1234",
   "publicUrl": ""
 }
