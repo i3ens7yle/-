@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --card: #ffffff;
+      --ink: #1d1b16;
+      --muted: #6b665c;
+      --line: #e3ddd0;
+      --soft: #efeae0;
+      --in: #1f6f5c;
+      --in-soft: #e2f0eb;
+      --out: #b4552a;
+      --out-soft: #f8e7dd;
+      --danger: #b3261e;
+      --danger-soft: #fbe9e7;
+      --radius: 18px;
+      --shadow: 0 1px 2px rgba(40, 30, 10, .06), 0 6px 24px rgba(40, 30, 10, .06);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: 'IBM Plex Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 1.5;
+      -webkit-tap-highlight-color: transparent;
+      min-height: 100vh;
+    }
+    button, input, select { font: inherit; color: inherit; }
+    .hidden { display: none !important; }
+
+    .top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--card);
+    }
+    .shop { font-weight: 700; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .clock { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; white-space: nowrap; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 22px;
+    }
+    h1, h2, h3 { margin: 0 0 6px; line-height: 1.3; }
+    h2 { font-size: 22px; }
+    h3 { font-size: 16px; color: var(--muted); font-weight: 600; }
+    .muted { color: var(--muted); }
+    .small { font-size: 14px; }
+
+    label.field { display: block; margin: 16px 0 0; font-weight: 600; font-size: 15px; }
+    label.field select, label.field input {
+      display: block; width: 100%; margin-top: 6px; padding: 14px 14px;
+      border: 1.5px solid var(--line); border-radius: 12px; background: #fff; font-size: 18px;
+    }
+    label.field input:focus, label.field select:focus { outline: none; border-color: var(--in); }
+    input.pin { letter-spacing: .4em; font-variant-numeric: tabular-nums; }
+    label.check { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-size: 15px; color: var(--muted); }
+    label.check input { width: 20px; height: 20px; accent-color: var(--in); }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 0; border-radius: 14px; padding: 15px 18px; font-weight: 600; cursor: pointer;
+      background: var(--soft); width: 100%; min-height: 54px; transition: transform .06s, opacity .15s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn[disabled] { opacity: .5; cursor: default; }
+    .btn.primary { background: var(--ink); color: #fff; margin-top: 20px; }
+    .btn.ghost { background: transparent; color: var(--muted); font-weight: 500; min-height: 44px; margin-top: 8px; }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+    .btn.in, .btn.out { min-height: 96px; font-size: 21px; flex-direction: column; gap: 2px; border: 2px solid transparent; }
+    .btn.in { background: var(--in-soft); color: var(--in); }
+    .btn.out { background: var(--out-soft); color: var(--out); }
+    .btn.in.suggest { background: var(--in); color: #fff; }
+    .btn.out.suggest { background: var(--out); color: #fff; }
+    .btn .hint { font-size: 13px; font-weight: 500; opacity: .85; }
+
+    .photo { margin-top: 18px; display: flex; align-items: center; gap: 14px; }
+    .photo .thumb {
+      width: 84px; height: 84px; border-radius: 50%; flex: none; background: var(--soft) center/cover no-repeat;
+      display: grid; place-items: center; font-size: 30px; border: 2px dashed var(--line);
+    }
+    .photo .thumb.has { border: 2px solid var(--in); font-size: 0; }
+    .photo .btn { width: auto; flex: 1; }
+    .photo.need .btn { box-shadow: 0 0 0 3px var(--danger); }
+
+    .err { color: var(--danger); background: var(--danger-soft); border-radius: 10px; padding: 10px 12px; margin: 14px 0 0; font-size: 15px; }
+    .err:empty { display: none; }
+
+    .done { text-align: center; padding: 34px 22px; }
+    .done .tick {
+      width: 84px; height: 84px; border-radius: 50%; margin: 0 auto 14px; display: grid; place-items: center;
+      font-size: 44px; color: #fff; background: var(--in);
+    }
+    .done.out .tick { background: var(--out); }
+    .done .big { font-size: 46px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
+
+    .notice { text-align: center; padding: 34px 22px; }
+    .notice .icon { font-size: 46px; margin-bottom: 8px; }
+
+    .spinner {
+      width: 34px; height: 34px; margin: 30px auto; border-radius: 50%;
+      border: 3px solid var(--line); border-top-color: var(--ink); animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* มือถือพนักงาน */
+    main.phone { max-width: 460px; margin: 0 auto; padding: 18px 16px 40px; }
+
+    /* หน้าจอร้าน */
+    main.kiosk {
+      display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px;
+      padding: 18px; max-width: 1200px; margin: 0 auto;
+    }
+    .qr-card { text-align: center; display: flex; flex-direction: column; align-items: center; }
+    .qr-card h2 { font-size: 28px; }
+    .qr-wrap { position: relative; width: min(100%, 420px); aspect-ratio: 1; margin: 12px auto 16px; padding: 14px; background: #fff; border-radius: 16px; border: 1px solid var(--line); }
+    #qr { width: 100%; height: 100%; }
+    #qr img, #qr canvas { width: 100% !important; height: auto !important; image-rendering: pixelated; display: block; }
+    .qr-wrap.stale #qr { opacity: .12; }
+    .qr-wrap .stale-msg { position: absolute; inset: 0; display: none; place-items: center; font-weight: 600; color: var(--muted); }
+    .qr-wrap.stale .stale-msg { display: grid; }
+    .bar { width: min(100%, 420px); height: 6px; border-radius: 99px; background: var(--soft); overflow: hidden; }
+    .bar span { display: block; height: 100%; width: 100%; background: var(--in); transform-origin: left; }
+    .steps { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+    .steps span { background: var(--soft); border-radius: 99px; padding: 4px 12px; font-size: 14px; color: var(--muted); }
+
+    .side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    .stat { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .stat b { font-size: 40px; line-height: 1; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip { background: var(--in-soft); color: var(--in); border-radius: 99px; padding: 3px 10px; font-size: 14px; font-weight: 500; }
+    .btn.nophone { background: var(--ink); color: #fff; min-height: 70px; font-size: 19px; }
+    ul.recent { list-style: none; margin: 8px 0 0; padding: 0; }
+    ul.recent li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; }
+    ul.recent li:first-child { border-top: 0; }
+    ul.recent .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--in); }
+    ul.recent .dot.OUT { background: var(--out); }
+    ul.recent .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    ul.recent .when { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .offline { color: var(--danger); font-size: 14px; }
+    .kiosk-foot { text-align: center; padding: 0 0 24px; }
+    .kiosk-foot button { background: none; border: 0; color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(29, 27, 22, .55); display: grid; place-items: center;
+      padding: 16px; z-index: 10; overflow-y: auto;
+    }
+    .overlay .sheet { width: min(100%, 460px); position: relative; }
+    .overlay .close {
+      position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%;
+      border: 0; background: var(--soft); font-size: 22px; cursor: pointer; z-index: 1;
+    }
+
+    @media (max-width: 820px) {
+      main.kiosk { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"><div class="spinner"></div></div>
+  <input type="file" id="cam" accept="image/*" capture="user" class="hidden">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>var BOOT = <?!= bootJson ?>;</script>
+  <script>
+  (function () {
+    'use strict';
+
+    var app = document.getElementById('app');
+    var cam = document.getElementById('cam');
+
+    // ───── helpers ─────
+    function $(sel, root) { return (root || document).querySelector(sel); }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function call(fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var runner = google.script.run
+          .withSuccessHandler(function (r) {
+            if (r && r.ok) return resolve(r);
+            var e = new Error((r && r.error) || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+            e.code = (r && r.code) || '';
+            reject(e);
+          })
+          .withFailureHandler(function (err) {
+            var e = new Error('เชื่อมต่อไม่ได้ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่');
+            e.code = 'NET';
+            e.detail = err;
+            reject(e);
+          });
+        runner[fn].apply(runner, args);
+      });
+    }
+    var store = {
+      get: function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+      set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } },
+      del: function (k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+    };
+    function pad(n) { return ('0' + n).slice(-2); }
+    function header(shop) {
+      return '<header class="top"><div class="shop">' + esc(shop) + '</div><div class="clock" data-clock></div></header>';
+    }
+    function tickClock() {
+      var d = new Date();
+      var txt = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      var els = document.querySelectorAll('[data-clock]');
+      for (var i = 0; i < els.length; i++) els[i].textContent = txt;
+    }
+    setInterval(tickClock, 1000);
+
+    function resizeImage(file, max) {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var s = Math.min(1, max / Math.max(img.width, img.height));
+          var c = document.createElement('canvas');
+          c.width = Math.round(img.width * s);
+          c.height = Math.round(img.height * s);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          resolve(c.toDataURL('image/jpeg', 0.72));
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('อ่านรูปไม่ได้ กรุณาถ่ายใหม่')); };
+        img.src = url;
+      });
+    }
+    function takePhoto() {
+      return new Promise(function (resolve, reject) {
+        cam.value = '';
+        cam.onchange = function () {
+          var f = cam.files && cam.files[0];
+          if (!f) return reject(new Error(''));
+          resizeImage(f, 640).then(resolve, reject);
+        };
+        cam.click();
+      });
+    }
+
+    // ───── ขั้นตอนลงเวลา (ใช้ร่วมกันทั้งมือถือและหน้าจอร้าน) ─────
+    // opts: { adapter:{employees,login,punch}, remember, requirePhoto, onDone, onPassError }
+    function createFlow(root, opts) {
+      var st = { employees: null, id: '', pin: '', remember: true, info: null, photo: null };
+
+      function busy(on, btns) {
+        (btns || root.querySelectorAll('button, input, select')).forEach(function (b) { b.disabled = on; });
+      }
+      function loading() { root.innerHTML = '<div class="card"><div class="spinner"></div></div>'; }
+
+      function handleFatal(e) {
+        if (e.code === 'PASS' && opts.onPassError) { opts.onPassError(e.message); return true; }
+        return false;
+      }
+
+      function showLogin(msg) {
+        if (!st.employees) {
+          loading();
+          opts.adapter.employees().then(function (r) {
+            st.employees = r.employees || [];
+            showLogin(msg);
+          }).catch(function (e) {
+            if (!handleFatal(e)) root.innerHTML = notice('⚠️', 'โหลดรายชื่อไม่ได้', e.message, true);
+            var rb = $('[data-retry]', root);
+            if (rb) rb.onclick = function () { showLogin(); };
+          });
+          return;
+        }
+        var options = st.employees.map(function (e) {
+          return '<option value="' + esc(e.id) + '"' + (e.id === st.id ? ' selected' : '') + '>' + esc(e.name) + '</option>';
+        }).join('');
+        root.innerHTML =
+          '<form class="card" data-login>' +
+            '<h2>ลงเวลาทำงาน</h2>' +
+            '<p class="muted small" style="margin:0">เลือกชื่อของคุณแล้วใส่ PIN</p>' +
+            '<label class="field">ชื่อพนักงาน<select name="emp" required>' +
+              '<option value="">— เลือกชื่อ —</option>' + options + '</select></label>' +
+            '<label class="field">PIN<input class="pin" name="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" required></label>' +
+            (opts.remember ? '<label class="check"><input type="checkbox" name="remember"' + (st.remember ? ' checked' : '') + '> จำฉันไว้ในมือถือเครื่องนี้ (ครั้งหน้าไม่ต้องใส่ PIN)</label>' : '') +
+            '<p class="err">' + esc(msg || '') + '</p>' +
+            '<button class="btn primary" type="submit">ถัดไป</button>' +
+          '</form>';
+        var form = $('[data-login]', root);
+        if (st.id) form.pin.focus();
+        form.onsubmit = function (ev) {
+          ev.preventDefault();
+          st.id = form.emp.value;
+          st.pin = form.pin.value.trim();
+          st.remember = opts.remember ? form.remember.checked : false;
+          if (!st.id) return showErr(form, 'กรุณาเลือกชื่อ');
+          if (!st.pin) return showErr(form, 'กรุณาใส่ PIN');
+          doLogin(form);
+        };
+      }
+
+      function showErr(scope, msg) { $('.err', scope).textContent = msg; }
+
+      function doLogin(form) {
+        if (form) busy(true); else loading();
+        opts.adapter.login(st.id, st.pin).then(function (r) {
+          st.info = r;
+          if (opts.remember) {
+            if (st.remember) store.set('att_me', { id: st.id, pin: st.pin });
+            else store.del('att_me');
+          }
+          showAction();
+        }).catch(function (e) {
+          if (handleFatal(e)) return;
+          if (e.code === 'PIN') { store.del('att_me'); st.pin = ''; }
+          if (form && form.isConnected) { busy(false); showErr(form, e.message); }
+          else showLogin(e.message);
+        });
+      }
+
+      function showAction(msg) {
+        var info = st.info;
+        var sug = info.suggested;
+        var last = info.last
+          ? 'ล่าสุด: ' + esc(info.last.label) + ' ' + esc(info.last.when)
+          : 'ยังไม่เคยลงเวลา';
+        root.innerHTML =
+          '<div class="card">' +
+            '<h2>สวัสดี ' + esc(info.employee.name) + '</h2>' +
+            '<p class="muted small" style="margin:0">' + last + '</p>' +
+            (opts.requirePhoto || st.photo ? photoBlock() : photoBlockOptional()) +
+            '<div class="actions">' +
+              actBtn('IN', 'เข้างาน', sug) + actBtn('OUT', 'ออกงาน', sug) +
+            '</div>' +
+            '<p class="err">' + esc(msg || '') + '</p>' +
+            '<button class="btn ghost" data-switch>ไม่ใช่ฉัน / เปลี่ยนคน</button>' +
+          '</div>';
+        var ph = $('[data-photo]', root);
+        if (ph) ph.onclick = function () {
+          takePhoto().then(function (data) { st.photo = data; showAction(); })
+            .catch(function (e) { if (e.message) showAction(e.message); });
+        };
+        root.querySelectorAll('[data-type]').forEach(function (b) {
+          b.onclick = function () { doPunch(b.getAttribute('data-type')); };
+        });
+        $('[data-switch]', root).onclick = function () {
+          if (opts.remember) store.del('att_me');
+          st.id = ''; st.pin = ''; st.info = null; st.photo = null;
+          showLogin();
+        };
+      }
+
+      function photoBlock() {
+        var has = !!st.photo;
+        return '<div class="photo">' +
+          '<div class="thumb' + (has ? ' has' : '') + '"' + (has ? ' style="background-image:url(' + st.photo + ')"' : '') + '>🙂</div>' +
+          '<button class="btn" type="button" data-photo>' + (has ? '📷 ถ่ายใหม่' : '📷 ถ่ายเซลฟี่') + '</button>' +
+        '</div>';
+      }
+      function photoBlockOptional() {
+        return '<div class="photo"><button class="btn ghost" type="button" data-photo style="margin:0">📷 แนบเซลฟี่ (ไม่บังคับ)</button></div>';
+      }
+      function actBtn(type, label, sug) {
+        return '<button class="btn ' + (type === 'IN' ? 'in' : 'out') + (sug === type ? ' suggest' : '') + '" data-type="' + type + '">' +
+          label + (sug === type ? '<span class="hint">แนะนำ</span>' : '') + '</button>';
+      }
+
+      function doPunch(type) {
+        if (opts.requirePhoto && !st.photo) {
+          showAction('กรุณาถ่ายเซลฟี่ก่อนลงเวลา');
+          $('.photo', root).classList.add('need');
+          return;
+        }
+        busy(true);
+        var btn = $('[data-type="' + type + '"]', root);
+        btn.innerHTML = 'กำลังบันทึก…';
+        opts.adapter.punch({
+          empId: st.id, pin: st.pin, type: type, photo: st.photo,
+          device: navigator.userAgent
+        }).then(function (r) {
+          st.photo = null;
+          root.innerHTML =
+            '<div class="card done ' + (r.type === 'OUT' ? 'out' : '') + '">' +
+              '<div class="tick">✓</div>' +
+              '<h2>ลง' + esc(r.label) + 'แล้ว</h2>' +
+              '<div class="big">' + esc(r.time) + '</div>' +
+              '<p class="muted">' + esc(r.name) + ' · ' + esc(r.date) + '</p>' +
+              (opts.remember ? '<p class="small muted">ปิดหน้านี้ได้เลย</p>' : '') +
+            '</div>';
+          if (opts.onDone) opts.onDone(r);
+        }).catch(function (e) {
+          if (handleFatal(e)) return;
+          if (e.code === 'PIN') { store.del('att_me'); st.pin = ''; return showLogin(e.message); }
+          showAction(e.message);
+        });
+      }
+
+      // start
+      var saved = opts.remember ? store.get('att_me') : null;
+      if (saved && saved.id && saved.pin) {
+        st.id = saved.id; st.pin = saved.pin;
+        doLogin(null);
+      } else {
+        showLogin();
+      }
+    }
+
+    function notice(icon, title, text, retry) {
+      return '<div class="card notice"><div class="icon">' + icon + '</div><h2>' + esc(title) + '</h2>' +
+        '<p class="muted">' + esc(text) + '</p>' +
+        (retry ? '<button class="btn primary" data-retry>ลองใหม่</button>' : '') + '</div>';
+    }
+
+    // ───── โหมดมือถือพนักงาน ─────
+    function startPunch() {
+      app.innerHTML = header(BOOT.shopName) + '<main class="phone"><div id="flow"></div></main>';
+      tickClock();
+      var flow = $('#flow');
+      function passError(msg) {
+        flow.innerHTML = notice('📷', 'สแกน QR ใหม่อีกครั้ง', msg);
+      }
+      if (BOOT.error) return passError(BOOT.error);
+      createFlow(flow, {
+        remember: true,
+        requirePhoto: BOOT.requirePhoto,
+        onPassError: passError,
+        adapter: {
+          employees: function () { return call('apiEmployees', BOOT.pass); },
+          login: function (id, pin) { return call('apiLogin', BOOT.pass, id, pin); },
+          punch: function (req) { req.pass = BOOT.pass; return call('apiPunch', req); }
+        }
+      });
+    }
+
+    // ───── โหมดหน้าจอร้าน (Kiosk) ─────
+    function startKiosk() {
+      var pin = store.get('att_admin');
+      if (pin) bootKiosk(pin); else showGate();
+    }
+
+    function showGate(msg) {
+      app.innerHTML = header(BOOT.shopName) +
+        '<main class="phone"><form class="card" data-gate>' +
+          '<h2>เปิดหน้าจอลงเวลาของร้าน</h2>' +
+          '<p class="muted small" style="margin:0">ใส่ ADMIN_PIN จากแท็บ "ตั้งค่า" ใน Google Sheet (ใส่ครั้งเดียว เครื่องจะจำไว้)</p>' +
+          '<label class="field">ADMIN_PIN<input class="pin" name="pin" type="password" inputmode="numeric" autocomplete="off" required></label>' +
+          '<p class="err">' + esc(msg || '') + '</p>' +
+          '<button class="btn primary" type="submit">เปิดหน้าจอ</button>' +
+        '</form></main>';
+      tickClock();
+      var f = $('[data-gate]');
+      f.pin.focus();
+      f.onsubmit = function (ev) { ev.preventDefault(); bootKiosk(f.pin.value.trim(), f); };
+    }
+
+    function bootKiosk(pin, form) {
+      if (form) form.querySelector('button').disabled = true;
+      else app.innerHTML = header(BOOT.shopName) + '<div class="spinner"></div>';
+      call('apiKioskInit', pin).then(function (r) {
+        store.set('att_admin', pin);
+        runKiosk(pin, r);
+      }).catch(function (e) {
+        if (e.code === 'ADMIN') { store.del('att_admin'); return showGate(e.message); }
+        if (form) { form.querySelector('button').disabled = false; $('.err', form).textContent = e.message; return; }
+        app.innerHTML = header(BOOT.shopName) + '<main class="phone">' + notice('⚠️', 'เชื่อมต่อไม่ได้', e.message, true) + '</main>';
+        $('[data-retry]').onclick = function () { bootKiosk(pin); };
+      });
+    }
+
+    function runKiosk(pin, init) {
+      var shop = init.shopName;
+      app.innerHTML = header(shop) +
+        '<main class="kiosk">' +
+          '<section class="card qr-card">' +
+            '<h2>สแกนเพื่อลงเวลา</h2>' +
+            '<p class="muted" style="margin:0">เปิดกล้องมือถือแล้วสแกน QR นี้</p>' +
+            '<div class="qr-wrap" data-qrwrap><div id="qr"></div><div class="stale-msg">กำลังสร้าง QR ใหม่…</div></div>' +
+            '<div class="bar"><span data-bar></span></div>' +
+            '<p class="small muted" style="margin:8px 0 0">QR เปลี่ยนอัตโนมัติทุก ' + init.qr.period + ' วินาที <span class="offline" data-offline></span></p>' +
+            '<div class="steps"><span>① สแกน</span><span>② เลือกชื่อ + PIN</span>' +
+              (init.requirePhoto ? '<span>③ เซลฟี่</span><span>④ กดเข้า/ออกงาน</span>' : '<span>③ กดเข้า/ออกงาน</span>') + '</div>' +
+          '</section>' +
+          '<aside class="side">' +
+            '<div class="card"><div class="stat"><h3 style="margin:0">อยู่ในร้านตอนนี้</h3><b data-count>0</b></div><div class="chips" data-inside></div></div>' +
+            '<button class="btn nophone" data-nophone>ไม่มีมือถือ? ลงเวลาที่เครื่องนี้</button>' +
+            '<div class="card"><h3>ลงเวลาล่าสุด</h3><ul class="recent" data-recent></ul></div>' +
+          '</aside>' +
+        '</main>' +
+        '<div class="kiosk-foot"><button data-logout>ออกจากโหมดหน้าจอร้าน</button></div>' +
+        '<div class="overlay hidden" data-overlay><div class="sheet"><button class="close" data-close aria-label="ปิด">×</button><div data-flow></div></div></div>';
+      tickClock();
+
+      var qr = new QRCode(document.getElementById('qr'), {
+        text: init.qr.url, width: 512, height: 512,
+        colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M
+      });
+      var wrap = $('[data-qrwrap]'), bar = $('[data-bar]'), offline = $('[data-offline]');
+      var period = init.qr.period * 1000;
+      var expiresAt = Date.now() + init.qr.secondsLeft * 1000;
+      var inflight = false, retryAt = 0;
+
+      function applyQr(q) {
+        qr.makeCode(q.url);
+        period = q.period * 1000;
+        expiresAt = Date.now() + q.secondsLeft * 1000;
+      }
+      function refresh() {
+        if (inflight) return;
+        inflight = true;
+        call('apiKioskRefresh', pin).then(function (r) {
+          inflight = false;
+          offline.textContent = '';
+          applyQr(r.qr);
+          renderBoard(r.board);
+        }).catch(function (e) {
+          inflight = false;
+          if (e.code === 'ADMIN') { store.del('att_admin'); return showGate(e.message); }
+          offline.textContent = '· ออฟไลน์ กำลังลองใหม่…';
+          retryAt = Date.now() + 5000;
+        });
+      }
+      setInterval(function () {
+        var left = expiresAt - Date.now();
+        bar.style.transform = 'scaleX(' + Math.max(0, Math.min(1, left / period)) + ')';
+        // token ยังใช้ได้อีก 1 รอบหลังหมดเวลา → ค่อยขึ้นว่า QR เก่าเมื่อเกินนั้น
+        wrap.classList.toggle('stale', left < -period);
+        if (left <= 0 && Date.now() >= retryAt) refresh();
+      }, 250);
+
+      function renderBoard(b) {
+        $('[data-count]').textContent = b.inside.length;
+        $('[data-inside]').innerHTML = b.inside.length
+          ? b.inside.map(function (p) { return '<span class="chip">' + esc(p.name) + ' · ' + esc(p.since) + '</span>'; }).join('')
+          : '<span class="muted small">ยังไม่มีใครเข้างาน</span>';
+        $('[data-recent]').innerHTML = b.recent.length
+          ? b.recent.map(function (l) {
+              return '<li><span class="dot ' + l.type + '"></span><span class="nm">' + esc(l.name) + ' · ' + esc(l.label) +
+                '</span><span class="when">' + esc(l.when) + '</span></li>';
+            }).join('')
+          : '<li class="muted">ยังไม่มีการลงเวลา</li>';
+      }
+      renderBoard(init.board);
+
+      // ลงเวลาที่เครื่องร้าน (คนไม่มีมือถือ)
+      var overlay = $('[data-overlay]'), flowRoot = $('[data-flow]');
+      var idleTimer = null, closeTimer = null;
+      function closeOverlay() {
+        overlay.classList.add('hidden');
+        flowRoot.innerHTML = '';
+        clearTimeout(idleTimer); clearTimeout(closeTimer);
+      }
+      function bumpIdle() {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(closeOverlay, 90000);
+      }
+      overlay.addEventListener('input', bumpIdle);
+      overlay.addEventListener('click', bumpIdle);
+      $('[data-close]').onclick = closeOverlay;
+      $('[data-nophone]').onclick = function () {
+        overlay.classList.remove('hidden');
+        bumpIdle();
+        createFlow(flowRoot, {
+          remember: false,
+          requirePhoto: init.requirePhoto,
+          onDone: function () { refresh(); closeTimer = setTimeout(closeOverlay, 4000); },
+          adapter: {
+            employees: function () { return Promise.resolve({ employees: init.employees }); },
+            login: function (id, p) { return call('apiKioskLogin', pin, id, p); },
+            punch: function (req) { req.adminPin = pin; return call('apiKioskPunch', req); }
+          }
+        });
+      };
+      $('[data-logout]').onclick = function () {
+        if (confirm('ออกจากโหมดหน้าจอร้าน? ต้องใส่ ADMIN_PIN ใหม่เพื่อเปิดอีกครั้ง')) {
+          store.del('att_admin');
+          location.reload();
+        }
+      };
+
+      // กันจอดับ (ถ้าเบราว์เซอร์รองรับ)
+      function wake() {
+        try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) { /* ignore */ }
+      }
+      wake();
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') { wake(); refresh(); }
+      });
+    }
+
+    if (BOOT.mode === 'kiosk') startKiosk(); else startPunch();
+  })();
+  </script>
+</body>
+</html>
