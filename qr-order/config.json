@@ -1,0 +1,12 @@
+{
+  "shopName": "อาม่าแคมป์",
+  "tagline": "มาบ้านอาม่ากันนะจ๊ะ",
+  "logo": "/logo.jpg",
+  "tables": 20,
+  "requireOpenTable": false,
+  "lateMinutes": 20,
+  "vatPercent": 7,
+  "dayStartHour": 6,
+  "staffPin": "1234",
+  "publicUrl": ""
+}

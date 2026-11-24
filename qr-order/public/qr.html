@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>พิมพ์ QR โต๊ะ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.jpg">
+<link rel="apple-touch-icon" href="/icon.jpg">
+<style>
+  .bar { padding: 16px; display: grid; gap: 10px; max-width: 900px; margin: 0 auto; }
+  .bar h1 { margin: 0; font-size: 22px; }
+  .bar p { margin: 0; color: var(--muted); }
+  .bar .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bar input { flex: 1; min-width: 220px; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 12px; }
+  .sheet-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); padding: 0 16px 40px; max-width: 900px; margin: 0 auto; }
+  .card { background: #fff; color: #111; border: 2px dashed #bbb; border-radius: 16px; padding: 14px; text-align: center; break-inside: avoid; }
+  .card .logo { width: 84px; height: 84px; border-radius: 50%; display: block; margin: 0 auto 4px; }
+  .card .shop { font-weight: 700; font-size: 15px; }
+  .card .t { font-size: 30px; font-weight: 700; line-height: 1.1; margin: 2px 0 6px; }
+  .card img { width: 100%; max-width: 200px; aspect-ratio: 1; display: block; margin: 0 auto; }
+  .card .hint { font-size: 14px; margin-top: 6px; }
+  .card a { font-size: 11px; color: #666; word-break: break-all; }
+  @media print {
+    body { background: #fff; }
+    .bar { display: none; }
+    .sheet-grid { grid-template-columns: repeat(3, 1fr); padding: 0; gap: 10px; }
+    .card a { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>QR Code ประจำโต๊ะ</h1>
+  <p>QR แต่ละโต๊ะไม่เหมือนกัน ลูกค้าสแกนแล้วจะสั่งเข้าโต๊ะนั้นเลย ก่อนพิมพ์ให้ลองสแกนด้วยมือถือที่ต่อ Wi-Fi ร้านดู 1 โต๊ะ</p>
+  <label for="base" style="font-weight:600">ที่อยู่เว็บที่ลูกค้าจะเข้า</label>
+  <div class="row">
+    <input id="base" placeholder="เช่น http://192.168.1.50:3000">
+    <button class="btn" id="apply">ใช้ที่อยู่นี้</button>
+    <button class="btn btn-primary" onclick="print()">พิมพ์</button>
+  </div>
+</div>
+<div class="sheet-grid" id="grid"></div>
+<script>
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let PIN = ""; try { PIN = localStorage.getItem("staffPin") || ""; } catch {}
+if (!PIN) location.href = "/staff";
+async function load(base) {
+  const q = new URLSearchParams({ pin: PIN }); if (base) q.set("base", base);
+  const [r, m] = await Promise.all([fetch("/api/staff/qr-links?" + q).then((x) => x.json()), fetch("/api/menu").then((x) => x.json())]);
+  if (!r.links) { location.href = "/staff"; return; }
+  document.getElementById("base").value = r.base;
+  document.getElementById("grid").innerHTML = r.links.map((l) => `
+    <div class="card">${m.logo ? `<img class="logo" src="${esc(m.logo)}" alt="">` : ""}<div class="shop">${esc(m.shopName)}</div><div class="t">โต๊ะ ${l.table}</div>
+    <img src="/api/staff/qr/${l.table}.svg?${q}" alt="QR โต๊ะ ${l.table}">
+    <div class="hint">สแกนเพื่อดูเมนูและสั่งอาหาร</div><a href="${esc(l.url)}" target="_blank">${esc(l.url)}</a></div>`).join("");
+}
+document.getElementById("apply").onclick = () => load(document.getElementById("base").value.trim());
+load();
+</script>
+</body>
+</html>

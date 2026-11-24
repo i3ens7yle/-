@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>รายงานยอดขาย</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="/icon.jpg">
+<style>
+  :root { --chart: #e0731f; --grid: #ebe5dc; --axis: #8a8175; }
+  @media (prefers-color-scheme: dark) { :root { --chart: #d9772b; --grid: #2e2a24; --axis: #8f877b; } }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
+  header.top { display: flex; align-items: center; gap: 12px; padding: 16px 0 8px; flex-wrap: wrap; }
+  header.top img { width: 48px; height: 48px; border-radius: 50%; }
+  header.top h1 { margin: 0; font-size: 22px; }
+  header.top .sub { color: var(--muted); font-size: 14px; }
+  header.top .back { margin-left: auto; text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0 4px; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  .chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 14px; font-weight: 600; min-height: 40px; }
+  .chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .dates { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .dates input { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 10px; min-height: 40px; }
+  .range-label { color: var(--muted); font-size: 14px; margin: 4px 0 12px; }
+  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .kpi { background: var(--card); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .kpi .l { color: var(--muted); font-size: 14px; }
+  .kpi .v { font-size: 26px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .kpi.hero .v { font-size: 32px; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); margin-top: 16px; }
+  .card h2 { margin: 0; font-size: 18px; }
+  .card .hint { color: var(--muted); font-size: 14px; margin: 2px 0 10px; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 6px 14px; font-weight: 600; min-height: 36px; }
+  .seg button.on { background: var(--ink); color: var(--bg); }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart text { fill: var(--axis); font-size: 12px; font-family: inherit; }
+  .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.4; white-space: nowrap; transform: translate(-50%, -100%); opacity: 0; transition: opacity .1s; z-index: 3; }
+  .tip b { font-size: 15px; }
+  .empty { color: var(--muted); text-align: center; padding: 28px 0; }
+  details.tbl { margin-top: 8px; }
+  details.tbl summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data th { color: var(--muted); font-weight: 600; }
+  .rank { display: grid; gap: 2px; }
+  .row { display: grid; grid-template-columns: 30px minmax(110px, 200px) 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .row .n { color: var(--muted); font-weight: 700; text-align: right; }
+  .row .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .bar { height: 14px; display: flex; align-items: center; }
+  .row .bar i { display: block; height: 14px; background: var(--chart); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .row .val { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .row .val small { display: block; color: var(--muted); font-size: 12px; }
+  .tag { display: inline-block; margin-left: 6px; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; vertical-align: 1px; }
+  .tag.hot { background: var(--good-soft); color: var(--good); }
+  .tag.cold { background: var(--warn-soft); color: var(--warn); }
+  .unsold { margin-top: 12px; padding: 10px 14px; border-radius: 12px; background: var(--warn-soft); color: var(--warn); }
+  .downloads { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .downloads a { text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
+  @media (max-width: 560px) {
+    .kpi.hero { grid-column: 1 / -1; }
+    .kpi .v { font-size: 22px; }
+    .row { grid-template-columns: 24px 1fr auto; }
+    .row .bar { grid-column: 2 / 4; grid-row: 2; }
+  }
+  @media print { .filters, .downloads, header .back { display: none; } .card, .kpi { box-shadow: none; border: 1px solid #ddd; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <img id="logo" src="/logo.jpg" alt="">
+    <div><h1>รายงานยอดขาย</h1><div class="sub" id="shop"></div></div>
+    <a class="btn back" href="/staff">← หน้าจอพนักงาน</a>
+  </header>
+
+  <div class="filters" role="group" aria-label="ช่วงเวลา">
+    <button class="chip" data-p="today">วันนี้</button>
+    <button class="chip" data-p="7d">7 วันล่าสุด</button>
+    <button class="chip" data-p="month">เดือนนี้</button>
+    <button class="chip" data-p="lastmonth">เดือนที่แล้ว</button>
+    <button class="chip" data-p="year">ปีนี้</button>
+    <span class="dates"><input type="date" id="from" aria-label="ตั้งแต่วันที่"> ถึง <input type="date" id="to" aria-label="ถึงวันที่"></span>
+  </div>
+  <div class="range-label" id="rangeLabel"></div>
+
+  <div id="body"><div class="empty">กำลังโหลด...</div></div>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const baht = (n) => "฿" + Number(n).toLocaleString("th-TH", { minimumFractionDigits: Number.isInteger(+n) ? 0 : 2, maximumFractionDigits: 2 });
+const num = (n) => Number(n).toLocaleString("th-TH");
+const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const WD = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+const dayLabel = (d, long) => { const x = new Date(d + "T00:00:00Z"); return (long ? WD[x.getUTCDay()] + " " : "") + x.getUTCDate() + " " + TH_MONTH[x.getUTCMonth()] + (long ? " " + (x.getUTCFullYear() + 543) : ""); };
+const monthLabel = (m, long) => { const [y, mo] = m.split("-").map(Number); return TH_MONTH[mo - 1] + (long ? " " + (y + 543) : " " + String((y + 543) % 100).padStart(2, "0")); };
+const addDays = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
+let PIN = ""; try { PIN = localStorage.getItem("staffPin") || ""; } catch {}
+if (!PIN) location.href = "/staff";
+let R = null, preset = "month", grain = null, sortBy = "qty";
+try { preset = localStorage.getItem("reportPreset") || "month"; } catch {}
+
+async function load(from, to) {
+  const q = new URLSearchParams(); if (from) q.set("from", from); if (to) q.set("to", to);
+  const r = await fetch("/api/staff/report?" + q, { headers: { "x-staff-pin": PIN } });
+  if (r.status === 401) { location.href = "/staff"; return; }
+  R = await r.json();
+  document.getElementById("from").value = R.from; document.getElementById("to").value = R.to;
+  document.getElementById("shop").textContent = R.shopName;
+  const days = R.days.length;
+  grain = grain && !(grain === "day" && days > 92) ? grain : days > 62 ? "month" : "day";
+  render();
+}
+function presetRange(p, t) {
+  const y = t.slice(0, 4), m = t.slice(0, 7);
+  if (p === "today") return [t, t];
+  if (p === "7d") return [addDays(t, -6), t];
+  if (p === "month") return [m + "-01", t];
+  if (p === "lastmonth") { const end = addDays(m + "-01", -1); return [end.slice(0, 7) + "-01", end]; }
+  if (p === "year") return [y + "-01-01", t];
+}
+function setPreset(p) {
+  preset = p; try { localStorage.setItem("reportPreset", p); } catch {}
+  document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.p === p));
+  grain = null;
+  const t = (R && R.today) || new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+  const [f, to] = presetRange(p, t); load(f, to);
+}
+
+// ---------- กราฟแท่งแนวตั้ง (SVG) ----------
+// ขั้นของแกนเป็นเลขกลมๆ (1, 2, 2.5, 5 × 10^n) แบ่ง 4 ช่อง
+function niceStep(max) { const raw = Math.max(max, 1) / 4, p = Math.pow(10, Math.floor(Math.log10(raw))); for (const m of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= raw) return m * p; return 10 * p; }
+const tick = (v) => v >= 10000 ? (v / 1000).toLocaleString("th-TH", { maximumFractionDigits: 1 }) + "K" : v.toLocaleString("th-TH");
+function columnChart(host, data, { height = 220, labelEvery = 1, peak = true } = {}) {
+  const W = Math.max(320, host.clientWidth || 600), H = height, padL = 44, padB = 26, padT = 18;
+  const plotW = W - padL - 6, plotH = H - padB - padT;
+  const step = niceStep(Math.max(...data.map((d) => d.value), 0)), max = step * 4;
+  const band = plotW / data.length, bw = Math.max(3, Math.min(24, band - 2));
+  // เว้นป้ายแกนล่างให้ไม่ชนกัน
+  const labelW = Math.max(...data.map((d) => String(d.label).length)) * 7 + 10;
+  labelEvery = Math.max(labelEvery, Math.ceil(labelW / band));
+  const y = (v) => padT + plotH - (v / max) * plotH;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(host.dataset.title || "")}">`;
+  for (let i = 0; i <= 4; i++) {
+    const v = step * i, yy = y(v);
+    s += `<line x1="${padL}" x2="${W - 6}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${padL - 6}" y="${yy + 4}" text-anchor="end">${tick(v)}</text>`;
+  }
+  const pk = peak ? data.reduce((a, d, i) => (d.value > (data[a] ? data[a].value : -1) ? i : a), -1) : -1;
+  data.forEach((d, i) => {
+    const cx = padL + band * i + band / 2, h = (d.value / max) * plotH, x = cx - bw / 2, top = padT + plotH - h;
+    if (h > 0) {
+      const r = Math.min(4, bw / 2, h);
+      s += `<path d="M${x},${padT + plotH} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${padT + plotH} Z" fill="var(--chart)"/>`;
+    }
+    if (i === pk && d.value > 0) s += `<text x="${cx}" y="${top - 5}" text-anchor="middle" style="fill:var(--ink);font-weight:700">${Math.round(d.value).toLocaleString("th-TH")}</text>`;
+    if (i % labelEvery === 0) s += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(d.label)}</text>`;
+    s += `<rect class="hit" data-i="${i}" x="${padL + band * i}" y="${padT}" width="${band}" height="${plotH}" fill="transparent"/>`;
+  });
+  s += `<line x1="${padL}" x2="${W - 6}" y1="${padT + plotH}" y2="${padT + plotH}" stroke="var(--axis)" stroke-width="1"/></svg>`;
+  host.innerHTML = s;
+  const tip = document.getElementById("tip");
+  const show = (e) => {
+    const r = e.target.closest(".hit"); if (!r) return hide();
+    const d = data[+r.dataset.i], box = r.getBoundingClientRect();
+    tip.innerHTML = d.tip; tip.style.opacity = 1;
+    tip.style.left = Math.min(window.innerWidth - 90, Math.max(90, box.left + box.width / 2)) + window.scrollX + "px";
+    tip.style.top = box.top + window.scrollY + box.height * (1 - Math.min(1, d.value / max)) - 6 + "px";
+    host.querySelectorAll(".hit").forEach((h) => h.setAttribute("fill", h === r ? "rgba(128,128,128,.10)" : "transparent"));
+  };
+  const hide = () => { tip.style.opacity = 0; host.querySelectorAll(".hit").forEach((h) => h.setAttribute("fill", "transparent")); };
+  host.onmousemove = show; host.onmouseleave = hide;
+  host.ontouchstart = (e) => show({ target: document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY) || e.target });
+}
+
+function render() {
+  const T = R.totals, body = document.getElementById("body");
+  const multi = R.from !== R.to;
+  document.getElementById("rangeLabel").textContent = "ช่วงที่ดู: " + (multi ? dayLabel(R.from, true) + " – " + dayLabel(R.to, true) : dayLabel(R.from, true)) +
+    " · นับยอดตามวันปิดบิล (หลังเที่ยงคืนนับรวมกับคืนก่อน)";
+  if (!T.bills) {
+    body.innerHTML = `<div class="card"><div class="empty">ยังไม่มียอดขายในช่วงนี้<br><small>ยอดจะเข้ารายงานเมื่อกด "ปิดบิล" ในหน้าจอพนักงาน</small></div></div>${unsoldBlock()}`;
+    return;
+  }
+  const timeline = grain === "month"
+    ? R.months.map((m) => ({ label: monthLabel(m.month), value: m.total, tip: `${monthLabel(m.month, true)}<br><b>${baht(m.total)}</b><br>${num(m.bills)} บิล` }))
+    : R.days.map((d) => ({ label: R.days.length > 14 ? String(+d.day.slice(8)) : dayLabel(d.day), value: d.total, tip: `${dayLabel(d.day, true)}<br><b>${baht(d.total)}</b><br>${num(d.bills)} บิล` }));
+  const best = timeline.reduce((a, d) => (d.value > a.value ? d : a), timeline[0]);
+  const startH = 6; // เรียงชั่วโมงแบบวันทำการ 06:00 → 05:00
+  const hoursOrdered = [...R.hours.slice(startH), ...R.hours.slice(0, startH)];
+  const firstH = hoursOrdered.findIndex((h) => h.qty), lastH = hoursOrdered.length - 1 - [...hoursOrdered].reverse().findIndex((h) => h.qty);
+  const hours = firstH < 0 ? [] : hoursOrdered.slice(firstH, lastH + 1);
+  const items = [...R.items].sort((a, b) => sortBy === "qty" ? b.qty - a.qty || b.revenue - a.revenue : b.revenue - a.revenue || b.qty - a.qty);
+  const maxV = Math.max(...items.map((i) => sortBy === "qty" ? i.qty : i.revenue), 1);
+  const totalRev = items.reduce((s, i) => s + i.revenue, 0) || 1;
+  const nTag = items.length >= 6 ? 3 : items.length >= 4 ? 1 : 0;
+  const dl = (type, label) => `<a class="btn" href="/api/staff/report.csv?type=${type}&from=${R.from}&to=${R.to}&pin=${encodeURIComponent(PIN)}">⬇ ${label}</a>`;
+
+  body.innerHTML = `
+    <div class="kpis">
+      <div class="kpi hero"><div class="l">ยอดขายรวม (รวม VAT)</div><div class="v">${baht(T.total)}</div></div>
+      <div class="kpi"><div class="l">ยอดก่อน VAT</div><div class="v">${baht(T.subtotal)}</div></div>
+      <div class="kpi"><div class="l">VAT ${R.vatPercent}% ที่เก็บมา</div><div class="v">${baht(T.vat)}</div></div>
+      <div class="kpi"><div class="l">จำนวนบิล</div><div class="v">${num(T.bills)}</div></div>
+      <div class="kpi"><div class="l">เฉลี่ยต่อบิล</div><div class="v">${baht(Math.round(T.total / T.bills))}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h2>ยอดขาย${grain === "month" ? "รายเดือน" : "รายวัน"} (รวม VAT)</h2>
+        <div class="hint">${timeline.length > 1 ? `ขายได้มากที่สุด: ${grain === "month" ? monthLabel(R.months[timeline.indexOf(best)].month, true) : dayLabel(R.days[timeline.indexOf(best)].day, true)} · ${baht(best.value)}` : "แตะที่แท่งเพื่อดูรายละเอียด"}</div></div>
+        <div class="seg" role="group" aria-label="มุมมอง"><button data-g="day" class="${grain === "day" ? "on" : ""}" ${R.days.length > 92 ? "disabled" : ""}>รายวัน</button><button data-g="month" class="${grain === "month" ? "on" : ""}">รายเดือน</button></div></div>
+      <div class="chart" id="cTimeline" data-title="ยอดขาย"></div>
+      <details class="tbl"><summary>ดูเป็นตาราง</summary><table class="data"><thead><tr><th>${grain === "month" ? "เดือน" : "วัน"}</th><th>บิล</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th></tr></thead><tbody>
+        ${(grain === "month" ? R.months.map((m) => [monthLabel(m.month, true), m]) : R.days.map((d) => [dayLabel(d.day, true), d])).map(([l, x]) => `<tr><td>${l}</td><td>${num(x.bills)}</td><td>${baht(x.subtotal)}</td><td>${baht(x.vat)}</td><td><b>${baht(x.total)}</b></td></tr>`).join("")}
+      </tbody></table></details>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h2>เมนูขายดี → ขายน้อย</h2><div class="hint">${num(T.qty)} ที่ จาก ${items.length} เมนู · ยอดเงินเป็นราคาก่อน VAT</div></div>
+        <div class="seg" role="group" aria-label="เรียงตาม"><button data-s="qty" class="${sortBy === "qty" ? "on" : ""}">ตามจำนวน</button><button data-s="revenue" class="${sortBy === "revenue" ? "on" : ""}">ตามยอดเงิน</button></div></div>
+      <div class="rank">${items.map((i, n) => {
+        const v = sortBy === "qty" ? i.qty : i.revenue;
+        const tag = n < nTag ? `<span class="tag hot">ขายดี</span>` : n >= items.length - nTag ? `<span class="tag cold">ขายน้อย</span>` : "";
+        return `<div class="row"><span class="n">${n + 1}</span><span class="nm" title="${esc(i.name)}">${esc(i.name)}${tag}</span>
+          <span class="bar"><i style="width:${(v / maxV) * 100}%"></i></span>
+          <span class="val">${sortBy === "qty" ? `<b>${num(i.qty)}</b> ที่<small>${baht(i.revenue)} · ${Math.round((i.revenue / totalRev) * 100)}%</small>` : `<b>${baht(i.revenue)}</b><small>${num(i.qty)} ที่ · ${Math.round((i.revenue / totalRev) * 100)}%</small>`}</span></div>`;
+      }).join("")}</div>
+      ${unsoldBlock()}
+    </div>
+
+    <div class="card">
+      <h2>ช่วงเวลาขายดี</h2><div class="hint">ยอดอาหารและเครื่องดื่มตามเวลาที่ลูกค้าสั่ง (ก่อน VAT) · ใช้วางแผนจำนวนพนักงาน</div>
+      ${hours.length ? `<div class="chart" id="cHours" data-title="ยอดขายตามชั่วโมง"></div>` : `<div class="empty">ยังไม่มีข้อมูล</div>`}
+    </div>
+
+    <div class="card">
+      <h2>ดาวน์โหลดข้อมูล</h2><div class="hint">ไฟล์ CSV เปิดด้วย Excel หรือ Google Sheets ได้ · ข้อมูลทั้งหมดเก็บถาวรในโฟลเดอร์ data/sales</div>
+      <div class="downloads">${dl("items", "สรุปตามเมนู")}${dl("days", "ยอดรายวัน")}${dl("lines", "ทุกรายการที่ขาย")}</div>
+    </div>`;
+
+  columnChart(document.getElementById("cTimeline"), timeline);
+  if (hours.length) columnChart(document.getElementById("cHours"), hours.map((h) => ({
+    label: String(h.hour).padStart(2, "0") + ":00", value: h.revenue,
+    tip: `${String(h.hour).padStart(2, "0")}:00–${String((h.hour + 1) % 24).padStart(2, "0")}:00<br><b>${baht(h.revenue)}</b><br>${num(h.qty)} ที่`,
+  })), { height: 180 });
+}
+function unsoldBlock() {
+  if (!R.unsold.length) return "";
+  return `<div class="unsold"><b>ยังขายไม่ได้เลยในช่วงนี้ (${R.unsold.length} เมนู):</b> ${R.unsold.map((i) => esc(i.name)).join(", ")}</div>`;
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.p) return setPreset(b.dataset.p);
+  if (b.dataset.g) { grain = b.dataset.g; return render(); }
+  if (b.dataset.s) { sortBy = b.dataset.s; return render(); }
+});
+["from", "to"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  preset = null; document.querySelectorAll(".chip").forEach((c) => c.classList.remove("on")); grain = null;
+  load(document.getElementById("from").value, document.getElementById("to").value);
+}));
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => R && render(), 200); });
+setPreset(preset);
+</script>
+</body>
+</html>
