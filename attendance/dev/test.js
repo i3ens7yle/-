@@ -246,7 +246,26 @@ test('[2] เปิดผูกเครื่อง: เครื่องแ�
   assert.match(r.error, /ยังไม่ได้รับอนุมัติสำหรับ สมชาย.*M7Q2-K9XA/);
   const p = env.run('apiPunch', { pass: boot.pass, empId: 'E01', pin: '1234', type: 'IN', photo: PHOTO, device: PHONE.manee });
   assert.equal(p.code, 'DEVICE');
-  assert.equal(logRows(env).length, 1); // ไม่ได้บันทึก
+  // ไม่ได้ลงเวลา แต่จดความพยายามไว้ 1 แถว (login + punch ภายใน 10 นาที นับครั้งเดียว)
+  const rows = logRows(env);
+  assert.equal(rows.length, 2);
+  assert.deepEqual([rows[1][4], rows[1][5], rows[1][9], rows[1][10]],
+    ['สมชาย', 'ถูกบล็อก', 'M7Q2-K9XA', '⛔ เครื่องรออนุมัติ · เครื่องของ มานี']);
+  // แถวถูกบล็อกไม่กระทบการคำนวณ: สมชายยังไม่ได้เข้างาน
+  assert.deepEqual(env.run('apiKioskRefresh', '9999').board.inside.map((x) => x.name), ['มานี']);
+  const review = env.run('apiReviewDay', '9999', '');
+  assert.deepEqual(review.entries.map((e) => e.label), ['เข้างาน', 'ถูกบล็อก']);
+  env.advance(11 * MIN);
+  punch(env, 'E01', '1234', 'IN', { device: PHONE.manee });
+  assert.equal(logRows(env).length, 3); // เกิน 10 นาที → จดใหม่
+});
+
+test('[1] เจ้าของเครื่องตัวจริงไม่โดนธงไปด้วย หลังมีคนอื่นมาใช้เครื่องตัวเอง', (env) => {
+  assert.equal(punch(env, 'E02', '0042', 'IN').ok, true);
+  assert.equal(punch(env, 'E01', '1234', 'IN', { device: PHONE.manee }).ok, true); // สมชายใช้มือถือมานี
+  env.advance(9 * 3600000);
+  assert.equal(punch(env, 'E02', '0042', 'OUT').ok, true);                            // มานีใช้มือถือตัวเอง
+  assert.deepEqual(logRows(env).map((r) => r[10]), ['', '⚠️ เครื่องเดียวกับ มานี', '']);
 });
 
 test('[2] เปิดผูกเครื่อง: เปลี่ยนมือถือ → รออนุมัติ → เจ้าของร้านอนุมัติ → ใช้ได้', (env) => {
@@ -376,6 +395,33 @@ test('สรุปรายเดือน: กะดึกข้ามเที
     ['2026-11-24', 'E01', 'สมชาย', '15:50', '23:50', 8, 0, ''],
     ['2026-11-24', 'E02', 'มานี', '17:20', '23:00', 5.67, 20, ''],
   ]);
+});
+
+test('สรุปรายเดือน: ลืมลงเวลาเข้า แล้วออกหลังเที่ยงคืน → นับเป็นกะของวันก่อน', (env) => {
+  env.clock.now = Date.parse('2026-11-15T01:19:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'OUT').ok, true);
+  env.clock.now = Date.parse('2026-11-15T15:20:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.clock.now = Date.parse('2026-11-16T00:10:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'OUT').ok, true);
+  env.clock.now = Date.parse('2026-12-01T10:00:00+07:00');
+  const data = env.sheets[env.ctx.buildMonthlySummary_('2026-11')].data;
+  const d = data.findIndex((r) => r && r[0] === 'รายละเอียดรายวัน');
+  assert.deepEqual(data.slice(d + 2).filter(Boolean).map((r) => [r[0], r[3], r[4], r[7]]), [
+    ['2026-11-14', '', '01:19', 'ลืมลงเวลาเข้า'],
+    ['2026-11-15', '15:20', '00:10', ''],
+  ]);
+});
+
+test('[4] หน้าตรวจรูปจัดกลุ่มตามกะ: ออกงานหลังเที่ยงคืนอยู่ในวันเดียวกับเข้างาน', (env) => {
+  env.clock.now = Date.parse('2026-11-21T16:00:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.clock.now = Date.parse('2026-11-22T00:45:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'OUT').ok, true);
+  assert.equal(env.run('apiReviewDay', '9999', '').day, '2026-11-21'); // ตี 1 ยังนับเป็นกะของวันที่ 21
+  assert.deepEqual(env.run('apiReviewDay', '9999', '2026-11-21').entries.map((e) => e.time), ['16:00:00', '00:45:00']);
+  env.clock.now = Date.parse('2026-11-22T10:00:00+07:00');
+  assert.deepEqual(env.run('apiReviewDay', '9999', '').entries, []);
 });
 
 test('รับเดือนแบบ พ.ศ. ได้', (env) => {

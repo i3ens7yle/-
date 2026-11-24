@@ -210,6 +210,7 @@
     .pcard .meta b { font-size: 16px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tag { display: inline-block; border-radius: 6px; padding: 0 7px; font-weight: 600; font-size: 13px; background: var(--in-soft); color: var(--in); }
     .tag.OUT { background: var(--out-soft); color: var(--out); }
+    .tag.BLOCK { background: var(--danger-soft); color: var(--danger); }
     .pcard .t { font-variant-numeric: tabular-nums; font-weight: 600; }
     .pcard .sub { color: var(--muted); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
     .pcard .flagtxt { color: var(--danger); font-size: 13px; font-weight: 600; margin-top: 6px; }
@@ -792,7 +793,7 @@
           '<div class="daybar">' +
             '<button class="btn navbtn" data-prev aria-label="วันก่อน">◀</button>' +
             '<div class="day"><b>' + esc(r.label) + '</b><span>ลงเวลา ' + r.entries.length + ' ครั้ง' +
-              (r.day === r.today ? ' · วันนี้' : '') + '</span></div>' +
+              (r.day === r.today ? ' · วันนี้' : '') + ' · รวมหลังเที่ยงคืนถึง 06:00</span></div>' +
             '<button class="btn navbtn" data-next aria-label="วันถัดไป"' + (r.day >= r.today ? ' disabled' : '') + '>▶</button>' +
           '</div>' +
           (r.deviceLock ? '' : '<div class="banner">ผูกเครื่องยังปิดอยู่ (DEVICE_LOCK = FALSE): เครื่องที่รออนุมัติยังลงเวลาได้ แต่จะถูกติดธงเตือนไว้</div>') +

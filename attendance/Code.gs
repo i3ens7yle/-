@@ -18,7 +18,7 @@ const LOG_HEADERS = ['เวลาบันทึก', 'วันที่', '�
 const DEV_HEADERS = ['รหัสพนักงาน', 'ชื่อ', 'รหัสเครื่อง', 'รุ่นเครื่อง', 'เห็นครั้งแรก', 'ใช้ล่าสุด', 'สถานะ', 'หมายเหตุ'];
 const DEV_STATUS = { OK: 'อนุมัติ', PENDING: 'รออนุมัติ', NO: 'ไม่อนุมัติ' };
 const DEVICE_RE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
-const TYPE_LABEL = { IN: 'เข้างาน', OUT: 'ออกงาน' };
+const TYPE_LABEL = { IN: 'เข้างาน', OUT: 'ออกงาน', BLOCK: 'ถูกบล็อก' };
 const CHANNEL = { PHONE: 'มือถือพนักงาน', KIOSK: 'เครื่องของร้าน' };
 const SETTING_DEFAULTS = [
   ['SHOP_NAME', 'อาม่า แคมป์', 'ชื่อร้านที่แสดงบนหน้าจอ'],
@@ -33,6 +33,7 @@ const SETTING_DEFAULTS = [
 const PASS_MINUTES = 5;      // หลังสแกน QR มีเวลากรอก PIN/ถ่ายรูปกี่นาที
 const MAX_PIN_FAILS = 5;     // ใส่ PIN ผิดเกินนี้ ล็อก 10 นาที
 const MAX_ADMIN_FAILS = 10;
+const SHIFT_DAY_CUTOFF_HOURS = 6; // ร้านเปิดเลยเที่ยงคืน: ช่วง 00:00–06:00 นับเป็นกะของวันก่อนหน้า
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 // ───────────────────────── เมนูใน Google Sheet ─────────────────────────
@@ -262,9 +263,9 @@ function apiReviewDay(adminPin, day) {
   return api_(function () {
     const cfg = getSettings_();
     checkAdmin_(adminPin, cfg);
-    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? String(day) : dayOf_(Date.now());
-    const entries = readLogs_(0)
-      .filter(function (l) { return dayOf_(l.ts) === d; })
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? String(day) : shiftDay_(Date.now());
+    const entries = readLogs_(0, true)
+      .filter(function (l) { return shiftDay_(l.ts) === d; })
       .sort(function (a, b) { return a.ts - b.ts; })
       .map(function (l) {
         return {
@@ -277,7 +278,7 @@ function apiReviewDay(adminPin, day) {
     return {
       day: d,
       label: thaiDate_(Date.parse(d + 'T12:00:00+07:00')),
-      today: dayOf_(Date.now()),
+      today: shiftDay_(Date.now()),
       deviceLock: cfg.DEVICE_LOCK,
       entries: entries,
       pending: pendingDevices_(),
@@ -576,13 +577,14 @@ function deviceGate_(emp, device, cfg, touch) {
   const dev = cleanDevice_(device);
   if (!dev) {
     if (cfg.DEVICE_LOCK) {
+      logBlocked_(emp, { id: '', name: '' }, '⛔ ไม่มีรหัสเครื่อง');
       throw userError_('เบราว์เซอร์นี้จำรหัสเครื่องไม่ได้ (อาจเปิดโหมดไม่ระบุตัวตนอยู่) กรุณาสแกนด้วยกล้องมือถือแล้วเปิดในเบราว์เซอร์ปกติ', 'DEVICE');
     }
     return { id: '', name: '', flags: ['⚠️ ไม่มีรหัสเครื่อง'] };
   }
 
   const flags = [];
-  let status;
+  let status, sharedWith = '';
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
@@ -595,6 +597,7 @@ function deviceGate_(emp, device, cfg, touch) {
     const approvedMine = mine.filter(function (r) { return r.status === DEV_STATUS.OK; });
     const row = mine.filter(function (r) { return r.deviceId === dev.id; })[0];
     const now = new Date();
+    sharedWith = otherNames.join(', ');
 
     if (!row) {
       const auto = !approvedMine.length && !others.length;
@@ -607,17 +610,22 @@ function deviceGate_(emp, device, cfg, touch) {
       if (touch) sh.getRange(row.rowNum, 6).setValue(now);
     }
 
-    if (others.length) flags.push('⚠️ เครื่องเดียวกับ ' + otherNames.join(', '));
-    if (status === DEV_STATUS.NO) flags.push('⚠️ เครื่องที่เจ้าของร้านไม่อนุมัติ');
-    else if (status === DEV_STATUS.PENDING && !others.length) {
-      const usual = approvedMine.map(function (r) { return r.deviceId; });
-      flags.push('⚠️ เครื่องใหม่' + (usual.length ? ' (ปกติใช้ ' + usual.join(', ') + ')' : ''));
+    // ติดธงเฉพาะคนที่ใช้เครื่องที่ยังไม่ได้อนุมัติให้ตัวเอง (เจ้าของเครื่องตัวจริงไม่โดนธงไปด้วย)
+    if (status !== DEV_STATUS.OK) {
+      if (others.length) flags.push('⚠️ เครื่องเดียวกับ ' + otherNames.join(', '));
+      if (status === DEV_STATUS.NO) flags.push('⚠️ เครื่องที่เจ้าของร้านไม่อนุมัติ');
+      else if (!others.length) {
+        const usual = approvedMine.map(function (r) { return r.deviceId; });
+        flags.push('⚠️ เครื่องใหม่' + (usual.length ? ' (ปกติใช้ ' + usual.join(', ') + ')' : ''));
+      }
     }
   } finally {
     lock.releaseLock();
   }
 
   if (cfg.DEVICE_LOCK && status !== DEV_STATUS.OK) {
+    logBlocked_(emp, dev, '⛔ ' + (status === DEV_STATUS.NO ? 'เครื่องที่เจ้าของร้านไม่อนุมัติ' : 'เครื่องรออนุมัติ') +
+      (sharedWith ? ' · เครื่องของ ' + sharedWith : ''));
     throw userError_(status === DEV_STATUS.NO
       ? 'มือถือเครื่องนี้ไม่ได้รับอนุญาตให้ลงเวลาของ ' + emp.name
       : 'มือถือเครื่องนี้ยังไม่ได้รับอนุมัติสำหรับ ' + emp.name + ' — แจ้งเจ้าของร้านให้อนุมัติรหัสเครื่อง ' + dev.id + ' แล้วสแกนใหม่',
@@ -626,9 +634,30 @@ function deviceGate_(emp, device, cfg, touch) {
   return { id: dev.id, name: dev.name, flags: flags };
 }
 
+/** จดความพยายามลงเวลาที่ถูกบล็อกไว้ในแท็บบันทึกเวลา (คนเดิม+เครื่องเดิม จดครั้งเดียวต่อ 10 นาที) */
+function logBlocked_(emp, dev, reason) {
+  const cache = CacheService.getScriptCache();
+  const key = 'blk_' + emp.id + '_' + (dev.id || 'none');
+  if (cache.get(key)) return;
+  cache.put(key, '1', 600);
+  const now = new Date();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    sheet_(SHEETS.LOG).appendRow([
+      now, dayOf_(now), Utilities.formatDate(now, TZ, 'HH:mm:ss'), emp.id, emp.name, TYPE_LABEL.BLOCK,
+      CHANNEL.PHONE, '', dev.name, dev.id, reason,
+    ]);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ── บันทึกเวลา ──
 
 function dayOf_(ts) { return Utilities.formatDate(new Date(ts), TZ, 'yyyy-MM-dd'); }
+/** วันของกะ (ลงเวลาหลังเที่ยงคืนถึงตี 6 นับเป็นวันก่อนหน้า) */
+function shiftDay_(ts) { return dayOf_(ts - SHIFT_DAY_CUTOFF_HOURS * 3600000); }
 function hm_(ts) { return Utilities.formatDate(new Date(ts), TZ, 'HH:mm'); }
 
 function thaiDate_(ts) {
@@ -648,21 +677,24 @@ function driveId_(url) {
   return m ? m[1] : '';
 }
 
-/** อ่านบันทึกเวลา (maxRows = อ่านเฉพาะแถวท้ายสุด, 0 = ทั้งหมด) เรียงตามลำดับที่บันทึก */
-function readLogs_(maxRows) {
+/**
+ * อ่านบันทึกเวลา (maxRows = อ่านเฉพาะแถวท้ายสุด, 0 = ทั้งหมด) เรียงตามลำดับที่บันทึก
+ * withBlocked = รวมแถว "ถูกบล็อก" ด้วย (ใช้ในหน้าตรวจรูป/รายการน่าสงสัย — การคำนวณเวลาทำงานไม่ใช้)
+ */
+function readLogs_(maxRows, withBlocked) {
   const sh = sheet_(SHEETS.LOG);
   const last = sh.getLastRow();
   if (last < 2) return [];
   const start = maxRows ? Math.max(2, last - maxRows + 1) : 2;
   return sh.getRange(start, 1, last - start + 1, LOG_HEADERS.length).getValues().map(function (r, i) {
     const ts = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
-    const type = r[5] === TYPE_LABEL.IN ? 'IN' : r[5] === TYPE_LABEL.OUT ? 'OUT' : '';
+    const type = r[5] === TYPE_LABEL.IN ? 'IN' : r[5] === TYPE_LABEL.OUT ? 'OUT' : r[5] === TYPE_LABEL.BLOCK ? 'BLOCK' : '';
     return {
       rowNum: start + i, ts: ts, id: String(r[3]).trim(), name: String(r[4]).trim(), type: type,
       channel: String(r[6]), photo: String(r[7]), deviceName: String(r[8]),
       deviceId: String(r[9]).trim(), flags: String(r[10]).trim(),
     };
-  }).filter(function (l) { return l.id && l.type && !isNaN(l.ts); });
+  }).filter(function (l) { return l.id && l.type && (withBlocked || l.type !== 'BLOCK') && !isNaN(l.ts); });
 }
 
 function lastPunchOf_(logs, id) {
@@ -803,7 +835,7 @@ function pairShifts_(logs, employees, cfg) {
   function push(inL, outL) {
     const base = inL || outL;
     const row = {
-      date: dayOf_(base.ts), id: base.id, name: base.name,
+      date: inL ? dayOf_(inL.ts) : shiftDay_(outL.ts), id: base.id, name: base.name,
       in: inL ? hm_(inL.ts) : '', out: outL ? hm_(outL.ts) : '',
       hours: '', late: '', note: '',
     };
@@ -883,9 +915,9 @@ function buildMonthlySummary_(month) {
   let r = table(3, '', ['รหัส', 'ชื่อ', 'วันที่มาทำงาน', 'ชั่วโมงรวม', 'มาสายรวม (นาที)', 'มาสาย (ครั้ง)', 'ลงเวลาไม่ครบ (ครั้ง)'], body1);
 
   // 2) รายการน่าสงสัย (ธงจากระบบตรวจเครื่อง)
-  const flagged = logs
-    .filter(function (l) { return l.flags && dayOf_(l.ts).indexOf(month) === 0; })
-    .map(function (l) { return [dayOf_(l.ts), hm_(l.ts), l.id, l.name, TYPE_LABEL[l.type], l.deviceId, l.flags]; });
+  const flagged = readLogs_(0, true)
+    .filter(function (l) { return l.flags && shiftDay_(l.ts).indexOf(month) === 0; })
+    .map(function (l) { return [shiftDay_(l.ts), hm_(l.ts), l.id, l.name, TYPE_LABEL[l.type], l.deviceId, l.flags]; });
   r = table(r, '⚠️ รายการน่าสงสัย (' + flagged.length + ')',
     ['วันที่', 'เวลา', 'รหัส', 'ชื่อ', 'ประเภท', 'รหัสเครื่อง', 'เรื่อง'], flagged, [1, 2]);
 
