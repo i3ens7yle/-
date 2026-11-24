@@ -352,6 +352,70 @@ test('[4] หน้าตรวจรูป: รายการของวั�
   assert.deepEqual(env.run('apiReviewDay', '9999', '2026-11-22').entries, []);
 });
 
+// ───────── สำรองข้อมูล ─────────
+
+const backups = (env) => env.drive.files.filter((f) => f.folder === 'สำรองข้อมูลระบบลงเวลา');
+
+test('setup ตั้งงานสำรองอัตโนมัติทุกเช้า 6 โมง (กดซ้ำไม่ซ้อนกัน)', (env) => {
+  env.seed();
+  env.seed();
+  assert.equal(env.triggers.length, 1);
+  assert.deepEqual(env.triggers[0], { fn: 'dailyMaintenance', everyDays: 1, atHour: 6, tz: 'Asia/Bangkok' });
+  assert.ok(env.props.BACKUP_FOLDER_ID);
+});
+
+test('สำรองข้อมูลทุกเช้าเป็น .xlsx ทั้งไฟล์ และเรียกซ้ำถี่ ๆ ไม่ได้', (env) => {
+  env.clock.now = Date.parse('2026-11-24T06:00:00+07:00');
+  env.ctx.dailyMaintenance();
+  assert.deepEqual(backups(env).map((f) => f.name), ['สำรอง อาม่า แคมป์ 2026-11-24 0600.xlsx']);
+  assert.match(env.fetches[0].url, /spreadsheets\/d\/SHEET123\/export\?format=xlsx/);
+  assert.equal(env.fetches[0].o.headers.Authorization, 'Bearer TOKEN');
+  env.advance(3600000);
+  env.ctx.dailyMaintenance(); // มีคนเรียกผ่านเว็บ → ไม่ทำซ้ำ
+  assert.equal(backups(env).length, 1);
+  env.advance(23 * 3600000);
+  env.ctx.dailyMaintenance();
+  assert.equal(backups(env).length, 2);
+});
+
+test('เมนู "สำรองข้อมูลตอนนี้" เรียกผ่านเว็บไม่ได้ และสำรองไม่สำเร็จต้องแจ้ง error', (env) => {
+  assert.throws(() => env.ctx.backupNow(), /getUi/);
+  const bad = createEnv({ fetchFails: true });
+  bad.seed();
+  assert.throws(() => bad.ctx.backup_(bad.ctx.getSettings_()), /HTTP 500/);
+});
+
+test('ลบไฟล์สำรองเก่ากว่า 60 วัน แต่เก็บของวันที่ 1 ทุกเดือนไว้ตลอด', (env) => {
+  for (let d = 0; d < 75; d++) {
+    env.clock.now = Date.parse('2026-09-01T06:00:00+07:00') + d * 86400000;
+    env.ctx.dailyMaintenance();
+  }
+  const kept = backups(env).filter((f) => !f.trashed).map((f) => /\d{4}-\d{2}-\d{2}/.exec(f.name)[0]);
+  assert.equal(kept.length, 61 + 1);                    // 15 ก.ย.–14 พ.ย. (60 วันย้อนหลัง) + 1 ก.ย.
+  assert.ok(kept.includes('2026-09-01'));               // วันที่ 1 → เก็บ
+  assert.ok(!kept.includes('2026-09-14'));              // เก่ากว่า 60 วัน → ลบ
+  assert.ok(kept.includes('2026-09-15'));
+  assert.equal(kept.at(-1), '2026-11-14');
+});
+
+test('ลบรูปเซลฟี่ที่เก่ากว่า PHOTO_KEEP_DAYS (0 = เก็บตลอด)', (env) => {
+  env.clock.now = Date.parse('2026-01-01T16:00:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  env.clock.now = Date.parse('2026-07-01T16:00:00+07:00');
+  assert.equal(punch(env, 'E01', '1234', 'IN').ok, true);
+  const photos = () => env.drive.files.filter((f) => f.folder === 'รูปลงเวลาพนักงาน');
+
+  env.setSetting('PHOTO_KEEP_DAYS', 0);
+  env.ctx.dailyMaintenance();
+  assert.deepEqual(photos().map((f) => f.trashed), [false, false]);
+
+  env.setSetting('PHOTO_KEEP_DAYS', 180);
+  env.advance(13 * 3600000);
+  env.ctx.dailyMaintenance();
+  assert.deepEqual(photos().map((f) => f.trashed), [true, false]); // ม.ค. เกิน 180 วัน → ถังขยะ
+  assert.equal(logRows(env).length, 2);                            // บันทึกเวลายังอยู่ครบ
+});
+
 // ───────── สรุปรายเดือน ─────────
 
 test('สรุปรายเดือน: กะดึกข้ามเที่ยงคืน, มาสาย, ลืมลงเวลาออก, รายการน่าสงสัย', (env) => {

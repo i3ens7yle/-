@@ -70,6 +70,7 @@ function createEnv(opts = {}) {
     insertSheet: (n) => (sheets[n] = new Sheet(n)),
     setSpreadsheetTimeZone: (tz) => { ssTz = tz; },
     getSpreadsheetTimeZone: () => ssTz,
+    getId: () => 'SHEET123',
   };
 
   // ── Utilities ──
@@ -88,6 +89,15 @@ function createEnv(opts = {}) {
   const cache = {};
   const drive = { folders: {}, files: [] };
   const uiCalls = [];
+  const triggers = [];
+  const fetches = [];
+  const driveFile = (file) => ({
+    getUrl: () => 'https://drive.google.com/file/d/' + file.id + '/view?usp=drivesdk',
+    getName: () => file.name,
+    getDateCreated: () => new FakeDate(file.created),
+    setTrashed: (v) => { file.trashed = !!v; },
+    getBlob: () => ({ getContentType: () => file.blob.type, getBytes: () => file.blob.bytes }),
+  });
 
   const context = {
     console: { log() {}, error() {} },
@@ -136,28 +146,58 @@ function createEnv(opts = {}) {
     DriveApp: {
       createFolder(name) {
         const id = 'folder' + Object.keys(drive.folders).length;
-        const f = {
+        const folder = { name, files: [] };
+        folder.f = {
           getId: () => id,
+          getName: () => name,
           createFile: (blob) => {
-            drive.files.push(blob);
-            const fid = 'FILE' + String(drive.files.length).padStart(8, '0');
-            return { getUrl: () => 'https://drive.google.com/file/d/' + fid + '/view?usp=drivesdk' };
+            const fid = 'FILE' + String(drive.files.length + 1).padStart(8, '0');
+            const file = { id: fid, name: blob.name, blob, created: clock.now, trashed: false, folder: name };
+            drive.files.push(file);
+            folder.files.push(file);
+            return driveFile(file);
+          },
+          getFiles: () => {
+            const list = folder.files.filter((x) => !x.trashed);
+            let i = 0;
+            return { hasNext: () => i < list.length, next: () => driveFile(list[i++]) };
           },
         };
-        drive.folders[id] = { name, f };
-        return f;
+        drive.folders[id] = folder;
+        return folder.f;
       },
       getFileById(id) {
-        const blob = drive.files[Number(String(id).replace('FILE', '')) - 1];
-        if (!blob) throw new Error('file not found');
-        return { getBlob: () => ({ getContentType: () => blob.type, getBytes: () => blob.bytes }) };
+        const file = drive.files[Number(String(id).replace('FILE', '')) - 1];
+        if (!file) throw new Error('file not found');
+        return driveFile(file);
       },
       getFolderById(id) {
         if (!drive.folders[id]) throw new Error('not found');
         return drive.folders[id].f;
       },
     },
-    ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }) },
+    ScriptApp: {
+      getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }),
+      getOAuthToken: () => 'TOKEN',
+      getProjectTriggers: () => triggers.map((t) => ({ getHandlerFunction: () => t.fn, _t: t })),
+      deleteTrigger: (t) => { triggers.splice(triggers.indexOf(t._t), 1); },
+      newTrigger: (fn) => {
+        const t = { fn };
+        const b = {
+          timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; },
+          inTimezone: (z) => { t.tz = z; return b; }, create: () => { triggers.push(t); return t; },
+        };
+        return b;
+      },
+    },
+    UrlFetchApp: {
+      fetch: (url, o) => {
+        fetches.push({ url, o });
+        const blob = { name: '', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', bytes: [80, 75] };
+        blob.setName = (n) => { blob.name = n; return blob; };
+        return { getResponseCode: () => (opts.fetchFails ? 500 : 200), getBlob: () => blob };
+      },
+    },
     HtmlService: {
       createTemplateFromFile(name) {
         const src = fs.readFileSync(path.join(ROOT, name + '.html'), 'utf8');
@@ -190,7 +230,7 @@ function createEnv(opts = {}) {
   }
 
   return {
-    ctx: context, clock, sheets, props, cache, drive, seed,
+    ctx: context, clock, sheets, props, cache, drive, seed, triggers, fetches,
     setSetting(key, value) {
       const s = sheets['ตั้งค่า'];
       const row = s.data.find((r) => r && r[0] === key);

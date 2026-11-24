@@ -29,10 +29,13 @@ const SETTING_DEFAULTS = [
   ['MAX_SHIFT_HOURS', 16, 'ถ้าเข้า–ออกห่างกันเกินกี่ชั่วโมง ถือว่าลืมลงเวลาออก'],
   ['DEVICE_LOCK', 'FALSE', 'ผูกเครื่อง: TRUE = ลงเวลาได้เฉพาะมือถือที่อนุมัติแล้ว (แนะนำเปิดหลังใช้ไป 1 สัปดาห์)'],
   ['KIOSK_PHOTO', 'TRUE', 'แสดงรูปเซลฟี่บนหน้าจอร้าน 5 วินาทีหลังมีคนลงเวลา (TRUE/FALSE)'],
+  ['BACKUP_KEEP_DAYS', 60, 'เก็บไฟล์สำรองรายวันกี่วัน (ไฟล์สำรองของวันที่ 1 ทุกเดือนเก็บไว้ตลอด)'],
+  ['PHOTO_KEEP_DAYS', 180, 'ลบรูปเซลฟี่ที่เก่ากว่ากี่วัน (0 = เก็บตลอด) — ไฟล์จะอยู่ในถังขยะ Drive อีก 30 วันก่อนหายจริง'],
 ];
 const PASS_MINUTES = 5;      // หลังสแกน QR มีเวลากรอก PIN/ถ่ายรูปกี่นาที
 const MAX_PIN_FAILS = 5;     // ใส่ PIN ผิดเกินนี้ ล็อก 10 นาที
 const MAX_ADMIN_FAILS = 10;
+const MAINTENANCE_HOUR = 6;        // งานอัตโนมัติประจำวัน (สำรองข้อมูล) รันช่วง 06:00–07:00 หลังร้านปิด
 const SHIFT_DAY_CUTOFF_HOURS = 6; // ร้านเปิดเลยเที่ยงคืน: ช่วง 00:00–06:00 นับเป็นกะของวันก่อนหน้า
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -48,6 +51,7 @@ function onOpen() {
     .addSeparator()
     .addItem('สร้างสรุปรายเดือน', 'promptMonthlySummary')
     .addItem('อนุมัติเครื่องที่รออยู่ทั้งหมด', 'approveAllPending')
+    .addItem('สำรองข้อมูลตอนนี้', 'backupNow')
     .addItem('เปลี่ยนรหัสลับของ QR', 'rotateSecret')
     .addToUi();
 }
@@ -81,12 +85,15 @@ function setup() {
 
   getSecret_();
   photoFolder_();
+  backupFolder_();
+  installDailyTrigger_();
 
   ui.alert('ตั้งค่าเสร็จแล้ว ✅',
     'ขั้นต่อไป:\n' +
     '1. แท็บ "ตั้งค่า" → เปลี่ยน ADMIN_PIN (ชื่อร้านตั้งเป็น อาม่า แคมป์ ไว้แล้ว)\n' +
     '2. แท็บ "พนักงาน" → ใส่รายชื่อ รหัส และ PIN ของแต่ละคน (ลบแถวตัวอย่างออก)\n' +
-    '3. Deploy เป็นเว็บแอป (ดู README) แล้วกดเมนู "ดูลิงก์หน้าจอร้าน"',
+    '3. Deploy เป็นเว็บแอป (ดู README) แล้วกดเมนู "ดูลิงก์หน้าจอร้าน"\n\n' +
+    'ระบบจะสำรองข้อมูลอัตโนมัติทุกเช้า ~06:00 ไว้ในโฟลเดอร์ "' + BACKUP_FOLDER_NAME + '" ใน Google Drive',
     ui.ButtonSet.OK);
 }
 
@@ -128,6 +135,12 @@ function approveAllPending() {
   if (ok !== ui.Button.OK) return;
   pending.forEach(function (d) { setDeviceStatus_(d, DEV_STATUS.OK); });
   ui.alert('อนุมัติแล้ว ' + pending.length + ' เครื่อง');
+}
+
+function backupNow() {
+  const ui = SpreadsheetApp.getUi();
+  const file = backup_(getSettings_());
+  ui.alert('สำรองข้อมูลแล้ว ✅', 'ไฟล์ "' + file.getName() + '"\nอยู่ในโฟลเดอร์ "' + BACKUP_FOLDER_NAME + '" ใน Google Drive', ui.ButtonSet.OK);
 }
 
 function rotateSecret() {
@@ -391,6 +404,8 @@ function getSettings_() {
   s.MAX_SHIFT_HOURS = clampNum_(s.MAX_SHIFT_HOURS, 4, 24, 16);
   s.DEVICE_LOCK = bool_(s.DEVICE_LOCK);
   s.KIOSK_PHOTO = bool_(s.KIOSK_PHOTO);
+  s.BACKUP_KEEP_DAYS = Math.round(clampNum_(s.BACKUP_KEEP_DAYS, 7, 3650, 60));
+  s.PHOTO_KEEP_DAYS = Math.round(clampNum_(s.PHOTO_KEEP_DAYS, 0, 3650, 180));
   return s;
 }
 
@@ -927,4 +942,78 @@ function buildMonthlySummary_(month) {
 
   sh.autoResizeColumns(1, 8);
   return name;
+}
+
+// ───────────────────────── สำรองข้อมูล (อัตโนมัติทุกเช้า) ─────────────────────────
+
+const BACKUP_FOLDER_NAME = 'สำรองข้อมูลระบบลงเวลา';
+
+function installDailyTrigger_() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'dailyMaintenance') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('dailyMaintenance').timeBased().everyDays(1).atHour(MAINTENANCE_HOUR).inTimezone(TZ).create();
+}
+
+/**
+ * งานอัตโนมัติทุกเช้า: สำรองทั้งไฟล์เป็น .xlsx + ลบไฟล์สำรอง/รูปเซลฟี่ที่เก่าเกินกำหนด
+ * (ฟังก์ชันนี้ถูกเรียกผ่านเว็บได้ จึงกันไม่ให้ทำซ้ำภายใน 12 ชั่วโมง)
+ */
+function dailyMaintenance() {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('LAST_MAINTENANCE')) || 0;
+  if (Date.now() - last < 12 * 3600000) return;
+  props.setProperty('LAST_MAINTENANCE', String(Date.now()));
+  const cfg = getSettings_();
+  backup_(cfg);
+  cleanOldBackups_(cfg);
+  cleanOldPhotos_(cfg);
+}
+
+function backupFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('BACKUP_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* โฟลเดอร์ถูกลบ → สร้างใหม่ */ }
+  }
+  const folder = DriveApp.createFolder(BACKUP_FOLDER_NAME);
+  props.setProperty('BACKUP_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+/** ส่งออกทั้งไฟล์ (ทุกแท็บ) เป็น Excel เก็บในโฟลเดอร์สำรอง — เปิดได้ทั้ง Google ชีตและ Excel */
+function backup_(cfg) {
+  SpreadsheetApp.flush();
+  const url = 'https://docs.google.com/spreadsheets/d/' + ss_().getId() + '/export?format=xlsx';
+  const res = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error('สำรองข้อมูลไม่สำเร็จ (HTTP ' + res.getResponseCode() + ')');
+  const name = 'สำรอง ' + cfg.SHOP_NAME + ' ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HHmm') + '.xlsx';
+  return backupFolder_().createFile(res.getBlob().setName(name));
+}
+
+/** ลบไฟล์สำรองรายวันที่เก่ากว่า BACKUP_KEEP_DAYS แต่เก็บของวันที่ 1 ทุกเดือนไว้ตลอด */
+function cleanOldBackups_(cfg) {
+  const cutoff = Date.now() - cfg.BACKUP_KEEP_DAYS * 86400000;
+  const it = backupFolder_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    const m = /(\d{4})-(\d{2})-(\d{2}) \d{4}\.xlsx$/.exec(f.getName());
+    if (!m || m[3] === '01') continue;
+    if (f.getDateCreated().getTime() < cutoff) f.setTrashed(true);
+  }
+}
+
+/** ลบรูปเซลฟี่ที่เก่ากว่า PHOTO_KEEP_DAYS (ตามหลัก PDPA: เก็บเท่าที่จำเป็น) — ไปอยู่ในถังขยะ Drive ก่อน 30 วัน */
+function cleanOldPhotos_(cfg) {
+  if (!cfg.PHOTO_KEEP_DAYS) return;
+  const cutoff = Date.now() - cfg.PHOTO_KEEP_DAYS * 86400000;
+  const it = photoFolder_().getFiles();
+  let n = 0;
+  while (it.hasNext() && n < 1000) {
+    const f = it.next();
+    if (f.getDateCreated().getTime() < cutoff) { f.setTrashed(true); n++; }
+  }
 }
