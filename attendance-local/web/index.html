@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>ลงเวลาทำงาน</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div id="app"><div class="spinner"></div></div>
+  <script src="/static/common.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = App, app = document.getElementById('app');
+    function start() {
+      A.api('/api/info').then(function (info) {
+        document.title = 'ลงเวลา · ' + info.shopName;
+        var dev = A.deviceInfo();
+        app.innerHTML = A.header(info.shopName) +
+          '<main class="phone"><div id="flow"></div><div class="devcode">รหัสเครื่อง ' + A.esc(dev.id) + '</div></main>';
+        A.tickClock();
+        A.createFlow(A.$('#flow'), {
+          remember: true,
+          photo: info.requirePhoto ? 'required' : 'optional',
+          webcam: false,
+          adapter: {
+            employees: function () { return A.api('/api/employees'); },
+            login: function (id, pin) { return A.api('/api/login', { id: id, pin: pin, device: A.deviceInfo() }); },
+            punch: function (req) { req.device = A.deviceInfo(); return A.api('/api/punch', req); }
+          }
+        });
+      }).catch(function (e) {
+        app.innerHTML = A.header('') + '<main class="phone">' + A.notice('📶', 'เชื่อมต่อไม่ได้', e.message, true) + '</main>';
+        A.$('[data-retry]').onclick = start;
+      });
+    }
+    start();
+  })();
+  </script>
+</body>
+</html>

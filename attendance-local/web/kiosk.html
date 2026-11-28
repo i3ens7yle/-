@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>หน้าจอลงเวลา</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div id="app"><div class="spinner"></div></div>
+  <script src="/static/qrcode.min.js"></script>
+  <script src="/static/common.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = App, $ = A.$, esc = A.esc, app = document.getElementById('app');
+
+    function boot() {
+      A.api('/api/admin/status').then(function (s) {
+        if (s.needsSetup) {
+          app.innerHTML = A.header(s.shopName) + '<main class="phone">' +
+            A.notice('🔑', 'ยังไม่ได้ตั้งรหัสเจ้าของร้าน', 'เปิดหน้าเจ้าของร้านที่คอมเครื่องแม่ (http://localhost:8080/admin) เพื่อตั้งรหัสและเพิ่มพนักงานก่อน') + '</main>';
+          return;
+        }
+        if (!s.loggedIn) return gate(s.shopName);
+        run();
+      }).catch(function (e) {
+        app.innerHTML = A.header('') + '<main class="phone">' + A.notice('⚠️', 'เชื่อมต่อไม่ได้', e.message, true) + '</main>';
+        $('[data-retry]').onclick = boot;
+      });
+    }
+
+    function gate(shop, msg) {
+      app.innerHTML = A.header(shop) + '<main class="phone"><form class="card" data-gate>' +
+        '<h2>เปิดหน้าจอลงเวลาของร้าน</h2>' +
+        '<p class="muted small" style="margin:0">ใส่รหัสเจ้าของร้าน (ใส่ครั้งเดียว เครื่องนี้จะจำไว้)</p>' +
+        '<label class="field">รหัสเจ้าของร้าน<input class="pin" name="pin" type="password" inputmode="numeric" autocomplete="off" required></label>' +
+        '<p class="err">' + esc(msg || '') + '</p><button class="btn primary" type="submit">เปิดหน้าจอ</button></form></main>';
+      A.tickClock();
+      var f = $('[data-gate]');
+      f.pin.focus();
+      f.onsubmit = function (ev) {
+        ev.preventDefault();
+        A.api('/api/admin/login', { pin: f.pin.value.trim() }).then(run).catch(function (e) { gate(shop, e.message); });
+      };
+    }
+
+    function run() {
+      Promise.all([A.api('/api/admin/board'), A.api('/api/admin/settings')]).then(function (res) {
+        render(res[0], res[1]);
+      }).catch(function (e) {
+        if (e.code === 'ADMIN') return gate('', e.message);
+        app.innerHTML = A.header('') + '<main class="phone">' + A.notice('⚠️', 'โหลดไม่ได้', e.message, true) + '</main>';
+        $('[data-retry]').onclick = run;
+      });
+    }
+
+    function render(board, set) {
+      var url = set.addresses[0] || '';
+      document.title = 'หน้าจอลงเวลา · ' + board.shopName;
+      app.innerHTML = A.header(board.shopName) +
+        '<main class="kiosk">' +
+          '<section class="card qr-card">' +
+            '<h2>สแกนเพื่อลงเวลา</h2>' +
+            '<p class="muted" style="margin:0">ต่อ <b>Wi-Fi ร้าน</b> แล้วเปิด<b>กล้องมือถือ</b>สแกน QR นี้</p>' +
+            '<div class="qr-wrap"><div class="qr-box" id="qr"></div></div>' +
+            (url ? '<div class="url muted small">' + esc(url) + '</div>'
+                 : '<div class="err">คอมเครื่องนี้ยังไม่ได้ต่อ Wi-Fi/สายแลน — มือถือพนักงานจะเข้าไม่ได้</div>') +
+            '<div class="steps"><span>① ต่อ Wi-Fi ร้าน</span><span>② สแกน</span><span>③ ชื่อ + PIN</span><span>④ เซลฟี่ + กดเข้า/ออก</span></div>' +
+            '<p class="small muted" style="margin:10px 0 0"><span class="offline" data-offline></span></p>' +
+          '</section>' +
+          '<aside class="side">' +
+            '<div class="card"><div class="stat"><h3 style="margin:0">อยู่ในร้านตอนนี้</h3><b data-count>0</b></div><div class="chips" data-inside></div></div>' +
+            '<button class="btn nophone" data-nophone>ไม่มีมือถือ? ลงเวลาที่เครื่องนี้</button>' +
+            '<div class="card"><h3>ลงเวลาล่าสุด</h3><ul class="recent" data-recent></ul></div>' +
+          '</aside>' +
+        '</main>' +
+        '<div class="foot"><a href="/admin">หน้าเจ้าของร้าน</a></div>' +
+        '<div class="flash hidden" data-flash><div class="pic" data-flashpic></div><div class="cap"><b data-flashname></b><span data-flashlabel></span></div></div>' +
+        '<div class="overlay hidden" data-overlay><div class="sheet"><button class="close" data-close aria-label="ปิด">×</button><div data-flow></div></div></div>';
+      A.tickClock();
+      if (url) A.qr($('#qr'), url);
+
+      var employees = board.employees, kioskPhoto = board.kioskPhoto;
+      function renderBoard(b) {
+        employees = b.employees;
+        $('[data-count]').textContent = b.inside.length;
+        $('[data-inside]').innerHTML = b.inside.length
+          ? b.inside.map(function (p) { return '<span class="chip">' + esc(p.name) + ' · ' + esc(p.since) + '</span>'; }).join('')
+          : '<span class="muted small">ยังไม่มีใครเข้างาน</span>';
+        $('[data-recent]').innerHTML = b.recent.length
+          ? b.recent.map(function (l) {
+              return '<li><span class="dot ' + l.type + '"></span><span class="nm">' + esc(l.name) + ' · ' + esc(l.label) +
+                '</span><span class="when">' + esc(l.when) + '</span></li>';
+            }).join('')
+          : '<li class="muted">ยังไม่มีการลงเวลา</li>';
+      }
+      renderBoard(board);
+
+      var offline = $('[data-offline]');
+      function refresh() {
+        return A.api('/api/admin/board').then(function (b) { offline.textContent = ''; renderBoard(b); })
+          .catch(function (e) {
+            if (e.code === 'ADMIN') return gate(board.shopName, e.message);
+            offline.textContent = 'โปรแกรมบนคอมไม่ตอบ — เช็กว่าหน้าต่างโปรแกรมยังเปิดอยู่';
+          });
+      }
+      setInterval(refresh, 30000);
+
+      // รูปเซลฟี่เด้ง 5 วินาทีเมื่อมีคนลงเวลาจากมือถือ
+      var feedTs = board.now, feedBusy = false, queue = [], flashing = false;
+      var flash = $('[data-flash]');
+      function nextFlash() {
+        if (flashing || !queue.length) return;
+        var it = queue.shift();
+        flashing = true;
+        var pic = $('[data-flashpic]');
+        pic.style.backgroundImage = it.thumb ? 'url(' + it.thumb + ')' : '';
+        pic.textContent = it.thumb ? '' : (it.name || '?').charAt(0);
+        $('[data-flashname]').textContent = it.name;
+        $('[data-flashlabel]').textContent = it.label + ' ' + it.time;
+        flash.className = 'flash ' + it.type;
+        setTimeout(function () { flash.className = 'flash hidden'; flashing = false; setTimeout(nextFlash, 300); }, 5000);
+      }
+      setInterval(function () {
+        if (feedBusy || document.visibilityState === 'hidden') return;
+        feedBusy = true;
+        A.api('/api/admin/feed?since=' + feedTs).then(function (r) {
+          feedBusy = false;
+          if (!r.items.length) return;
+          r.items.forEach(function (it) {
+            feedTs = Math.max(feedTs, it.ts);
+            if (kioskPhoto && !it.kiosk) queue.push(it);
+          });
+          nextFlash();
+          refresh();
+        }).catch(function () { feedBusy = false; });
+      }, 4000);
+
+      // คนไม่มีมือถือ
+      var overlay = $('[data-overlay]'), flowRoot = $('[data-flow]'), idleTimer = null, closeTimer = null;
+      function closeOverlay() { overlay.classList.add('hidden'); flowRoot.innerHTML = ''; clearTimeout(idleTimer); clearTimeout(closeTimer); }
+      function bumpIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(closeOverlay, 90000); }
+      overlay.addEventListener('input', bumpIdle);
+      overlay.addEventListener('click', bumpIdle);
+      $('[data-close]').onclick = closeOverlay;
+      $('[data-nophone]').onclick = function () {
+        overlay.classList.remove('hidden');
+        bumpIdle();
+        A.createFlow(flowRoot, {
+          remember: false, photo: 'optional', webcam: true,
+          onDone: function () { refresh(); closeTimer = setTimeout(closeOverlay, 4000); },
+          adapter: {
+            employees: function () { return Promise.resolve({ employees: employees }); },
+            login: function (id, pin) { return A.api('/api/login', { id: id, pin: pin, kiosk: true }); },
+            punch: function (req) { req.kiosk = true; return A.api('/api/punch', req); }
+          }
+        });
+      };
+      try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) { /* ignore */ }
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>

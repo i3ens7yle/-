@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>เจ้าของร้าน · ระบบลงเวลา</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div id="app"><div class="spinner"></div></div>
+  <script src="/static/qrcode.min.js"></script>
+  <script src="/static/common.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = App, $ = A.$, $$ = A.$$, esc = A.esc, app = document.getElementById('app');
+    var shopName = '', tab = 'emps', banner = '';
+
+    function boot() {
+      A.api('/api/admin/status').then(function (s) {
+        shopName = s.shopName;
+        if (s.needsSetup) return s.local ? setup() : simple('🔑', 'ยังไม่ได้ตั้งรหัสเจ้าของร้าน', 'ตั้งรหัสครั้งแรกได้ที่คอมเครื่องแม่เท่านั้น');
+        if (!s.loggedIn) return login();
+        var hasEmps = A.api('/api/admin/employees');
+        hasEmps.then(function (r) { tab = r.employees.length ? 'day' : 'emps'; shell(); }).catch(function () { shell(); });
+      }).catch(function (e) { simple('⚠️', 'เชื่อมต่อไม่ได้', e.message, true); });
+    }
+
+    function simple(icon, title, text, retry) {
+      app.innerHTML = A.header(shopName) + '<main class="phone">' + A.notice(icon, title, text, retry) + '</main>';
+      var r = $('[data-retry]');
+      if (r) r.onclick = boot;
+    }
+
+    function setup(msg) {
+      app.innerHTML = A.header(shopName) + '<main class="phone"><form class="card" data-f>' +
+        '<h2>ยินดีต้อนรับ 👋</h2>' +
+        '<p class="muted small" style="margin:0">ตั้ง <b>รหัสเจ้าของร้าน</b> (ตัวเลข 4–8 หลัก) ใช้เข้าหน้านี้และเปิดหน้าจอร้าน — อย่าบอกพนักงาน</p>' +
+        '<label class="field">รหัสเจ้าของร้าน<input class="pin" name="a" type="password" inputmode="numeric" required></label>' +
+        '<label class="field">ใส่อีกครั้ง<input class="pin" name="b" type="password" inputmode="numeric" required></label>' +
+        '<p class="err">' + esc(msg || '') + '</p><button class="btn primary">ตั้งรหัส</button></form></main>';
+      A.tickClock();
+      var f = $('[data-f]');
+      f.a.focus();
+      f.onsubmit = function (ev) {
+        ev.preventDefault();
+        if (f.a.value !== f.b.value) return setup('รหัสสองช่องไม่ตรงกัน');
+        A.api('/api/admin/setup', { pin: f.a.value }).then(function () {
+          banner = 'ตั้งรหัสแล้ว ✅ ขั้นต่อไป: เพิ่มรายชื่อพนักงานด้านล่าง แล้วกด "บันทึก"';
+          tab = 'emps';
+          shell();
+        }).catch(function (e) { setup(e.message); });
+      };
+    }
+
+    function login(msg) {
+      app.innerHTML = A.header(shopName) + '<main class="phone"><form class="card" data-f>' +
+        '<h2>หน้าเจ้าของร้าน</h2>' +
+        '<label class="field">รหัสเจ้าของร้าน<input class="pin" name="pin" type="password" inputmode="numeric" required></label>' +
+        '<p class="err">' + esc(msg || '') + '</p><button class="btn primary">เข้าสู่ระบบ</button></form></main>';
+      A.tickClock();
+      var f = $('[data-f]');
+      f.pin.focus();
+      f.onsubmit = function (ev) {
+        ev.preventDefault();
+        A.api('/api/admin/login', { pin: f.pin.value.trim() }).then(boot).catch(function (e) { login(e.message); });
+      };
+    }
+
+    var TABS = [['day', '📷 ตรวจรูปรายวัน'], ['emps', '👥 พนักงาน'], ['pay', '💰 สรุปเงินเดือน'], ['set', '⚙️ ตั้งค่า & QR']];
+
+    function shell() {
+      app.innerHTML = A.header(shopName) +
+        '<main class="admin"><div class="tabs">' +
+        TABS.map(function (t) { return '<button data-tab="' + t[0] + '"' + (t[0] === tab ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join('') +
+        '</div>' + (banner ? '<div class="banner">' + esc(banner) + '</div>' : '') + '<div id="body"><div class="spinner"></div></div></main>' +
+        '<div class="foot"><a href="/kiosk">เปิดหน้าจอร้าน</a></div>';
+      A.tickClock();
+      $$('[data-tab]').forEach(function (b) { b.onclick = function () { tab = b.getAttribute('data-tab'); banner = ''; shell(); }; });
+      ({ day: dayTab, emps: empTab, pay: payTab, set: setTab })[tab]('');
+    }
+
+    function fail(e) {
+      if (e.code === 'ADMIN') return login(e.message);
+      $('#body').innerHTML = A.notice('⚠️', 'เกิดข้อผิดพลาด', e.message);
+    }
+
+    // ───── ตรวจรูปรายวัน ─────
+    function addDays(day, n) {
+      var p = day.split('-').map(Number);
+      var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n));
+      return d.getUTCFullYear() + '-' + A.pad(d.getUTCMonth() + 1) + '-' + A.pad(d.getUTCDate());
+    }
+    function card(e) {
+      var sub = e.kiosk ? 'เครื่องของร้าน' : (e.deviceId || 'ไม่มีรหัสเครื่อง') + (e.deviceName ? ' · ' + e.deviceName : '');
+      return '<div class="pcard' + (e.flags ? ' flag' : '') + '">' +
+        (e.photo ? '<a class="ph" href="' + esc(e.photo) + '" target="_blank" style="background-image:url(' + esc(e.photo) + ')"></a>'
+                 : '<div class="ph">ไม่มีรูป</div>') +
+        '<div class="meta"><b>' + esc(e.name) + '</b><span class="tag ' + e.type + '">' + esc(e.label) + '</span> <span class="t">' + esc(e.time) + '</span>' +
+        '<div class="sub">' + esc(sub) + '</div>' + (e.flags ? '<div class="flagtxt">' + esc(e.flags) + '</div>' : '') + '</div></div>';
+    }
+    function dayTab(day) {
+      A.api('/api/admin/day?d=' + encodeURIComponent(day || '')).then(function (r) {
+        var flagged = r.entries.filter(function (e) { return e.flags; });
+        $('#body').innerHTML =
+          '<div class="daybar"><button class="btn" data-prev>◀</button><div class="day"><b>' + esc(r.label) + '</b>' +
+          '<span>ลงเวลา ' + r.entries.length + ' ครั้ง' + (r.day === r.today ? ' · วันนี้' : '') + ' · รวมหลังเที่ยงคืนถึง 06:00</span></div>' +
+          '<button class="btn" data-next' + (r.day >= r.today ? ' disabled' : '') + '>▶</button></div>' +
+          (r.pending.length ? '<div class="sec warn"><h2>🔒 มือถือที่ยังไม่ยืนยัน</h2><span class="count">กดยืนยันถ้าเป็นมือถือของคนนั้นจริง</span></div>' +
+            r.pending.map(function (d, i) {
+              return '<div class="card devrow"><div class="info"><b>' + esc(d.empName) + '</b> · <span class="code">' + esc(d.deviceId) + '</span>' +
+                '<div class="small muted">' + esc(d.deviceName) + ' · เห็นครั้งแรก ' + esc(d.firstSeen) + '</div>' +
+                (d.note ? '<div class="note">' + esc(d.note) + '</div>' : '') + '</div>' +
+                '<div class="acts"><button class="btn small green" data-dev="' + i + '" data-dec="OK">ยืนยัน</button>' +
+                '<button class="btn small" data-dev="' + i + '" data-dec="NO">ไม่ใช่</button></div></div>';
+            }).join('') : '') +
+          (flagged.length ? '<div class="sec warn"><h2>⚠️ ต้องดู</h2><span class="count">' + flagged.length + ' รายการ</span></div><div class="grid big">' + flagged.map(card).join('') + '</div>' : '') +
+          '<div class="sec"><h2>ทั้งหมด</h2><span class="count">' + r.entries.length + ' รายการ · แตะรูปเพื่อดูภาพใหญ่</span></div>' +
+          (r.entries.length ? '<div class="grid">' + r.entries.map(card).join('') + '</div>' : '<div class="empty">ไม่มีการลงเวลาในวันนี้</div>');
+        $('[data-prev]').onclick = function () { dayTab(addDays(r.day, -1)); };
+        $('[data-next]').onclick = function () { dayTab(addDays(r.day, 1)); };
+        $$('[data-dev]').forEach(function (b) {
+          b.onclick = function () {
+            var d = r.pending[Number(b.getAttribute('data-dev'))];
+            A.api('/api/admin/device', { empId: d.empId, deviceId: d.deviceId, decision: b.getAttribute('data-dec') })
+              .then(function () { dayTab(r.day); }).catch(fail);
+          };
+        });
+      }).catch(fail);
+    }
+
+    // ───── พนักงาน ─────
+    function empTab() {
+      A.api('/api/admin/employees').then(function (r) { drawEmps(r.employees, ''); }).catch(fail);
+    }
+    function randomPin(used) {
+      for (var i = 0; i < 100; i++) {
+        var p = String(1000 + Math.floor(Math.random() * 9000));
+        if (used.indexOf(p) < 0) return p;
+      }
+      return String(1000 + Math.floor(Math.random() * 9000));
+    }
+    function drawEmps(list, msg, ok) {
+      $('#body').innerHTML =
+        '<p class="muted small" style="margin-top:0">ใส่ชื่อพนักงาน + PIN (ตัวเลข 4–8 หลัก ให้พนักงานจำไว้คนละรหัส) · เวลาเริ่มงานใช้คิดมาสาย · ค่าแรง/วันใช้คิดเงินเดือน · เอาติ๊ก "ทำงานอยู่" ออกเมื่อพนักงานลาออก (ประวัติยังอยู่)</p>' +
+        '<div class="tablewrap"><table class="edit"><thead><tr><th>รหัส</th><th>ชื่อ</th><th>PIN</th><th>เวลาเริ่มงาน</th><th>ค่าแรง/วัน (บาท)</th><th>ทำงานอยู่</th></tr></thead><tbody>' +
+        list.map(function (e, i) {
+          return '<tr data-i="' + i + '"><td><input name="id" value="' + esc(e.id) + '" style="max-width:90px"></td>' +
+            '<td><input name="name" value="' + esc(e.name) + '"></td>' +
+            '<td><input name="pin" value="' + esc(e.pin) + '" inputmode="numeric" style="max-width:110px"></td>' +
+            '<td><input name="start" value="' + esc(e.start) + '" placeholder="16:00" style="max-width:100px"></td>' +
+            '<td><input name="rate" value="' + (e.rate || '') + '" inputmode="decimal" placeholder="450" style="max-width:110px"></td>' +
+            '<td><input type="checkbox" name="active"' + (e.active ? ' checked' : '') + '></td></tr>';
+        }).join('') +
+        '</tbody></table></div>' +
+        '<div class="rowbtns"><button class="btn small" data-add>＋ เพิ่มพนักงาน</button><button class="btn small green" data-save>💾 บันทึก</button></div>' +
+        '<p class="err">' + (ok ? '' : esc(msg || '')) + '</p><p class="okmsg">' + (ok ? esc(msg) : '') + '</p>';
+      function read() {
+        return $$('tbody tr').map(function (tr) {
+          var g = function (n) { return $('[name=' + n + ']', tr); };
+          return { id: g('id').value, name: g('name').value, pin: g('pin').value, start: g('start').value,
+            rate: Number(g('rate').value.replace(/,/g, '')) || 0, active: g('active').checked };
+        });
+      }
+      $('[data-add]').onclick = function () {
+        var cur = read();
+        var n = cur.length + 1, id;
+        do { id = 'E' + (n < 10 ? '0' + n : n); n++; } while (cur.some(function (e) { return e.id === id; }));
+        cur.push({ id: id, name: '', pin: randomPin(cur.map(function (e) { return e.pin; })), start: '16:00', rate: 0, active: true });
+        drawEmps(cur, '');
+        var rows = $$('tbody tr');
+        $('[name=name]', rows[rows.length - 1]).focus();
+      };
+      $('[data-save]').onclick = function () {
+        var cur = read();
+        A.api('/api/admin/employees', { employees: cur }).then(function (r) {
+          drawEmps(r.employees, 'บันทึกแล้ว ✅ (' + r.employees.filter(function (e) { return e.active; }).length + ' คนที่ทำงานอยู่) — ไปที่แท็บ "ตั้งค่า & QR" เพื่อพิมพ์ QR', true);
+        }).catch(function (e) { if (e.code === 'ADMIN') return login(e.message); drawEmps(cur, e.message); });
+      };
+    }
+
+    // ───── สรุปเงินเดือน ─────
+    function money(n) { return Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 }); }
+    function payTab(month) {
+      A.api('/api/admin/summary?m=' + encodeURIComponent(month || '')).then(function (r) {
+        $('#body').innerHTML =
+          '<div class="rowbtns" style="margin:0 0 14px;align-items:center"><b>เดือน</b> <input type="month" value="' + esc(r.month) + '" data-month style="padding:8px;border:1.5px solid var(--line);border-radius:8px">' +
+          '<a class="btn small green" href="/api/admin/export.xlsx?m=' + encodeURIComponent(r.month) + '">⬇️ ดาวน์โหลด Excel</a></div>' +
+          '<div class="sec"><h2>สรุป ' + esc(r.label) + '</h2><span class="count">ค่าแรงรวม ' + money(r.totalPay) + ' บาท</span></div>' +
+          (r.totals.length ? '<div class="tablewrap"><table><thead><tr><th>ชื่อ</th><th class="num">วันทำงาน</th><th class="num">ชั่วโมงรวม</th><th class="num">มาสาย (ครั้ง/นาที)</th><th class="num">ลงเวลาไม่ครบ</th><th class="num">ค่าแรง/วัน</th><th class="num">ค่าแรงรวม</th></tr></thead><tbody>' +
+            r.totals.map(function (t) {
+              return '<tr><td>' + esc(t.Name) + '</td><td class="num">' + t.Days + '</td><td class="num">' + money(t.Hours) + '</td>' +
+                '<td class="num">' + t.LateCount + ' / ' + t.Late + '</td><td class="num">' + t.Missing + '</td>' +
+                '<td class="num">' + money(t.Rate) + '</td><td class="num">' + money(t.Pay) + '</td></tr>';
+            }).join('') + '<tr class="total"><td>รวม</td><td></td><td></td><td></td><td></td><td></td><td class="num">' + money(r.totalPay) + '</td></tr></tbody></table></div>'
+            : '<div class="empty">ยังไม่มีการลงเวลาในเดือนนี้</div>') +
+          '<p class="muted small">ค่าแรงรวม = วันทำงาน × ค่าแรง/วัน (ยังไม่รวมโอที ทิป หรือหักมาสาย) · "ลงเวลาไม่ครบ" ให้เช็กกับพนักงานก่อนจ่าย</p>' +
+          (r.flagged.length ? '<div class="sec warn"><h2>⚠️ รายการน่าสงสัย</h2><span class="count">' + r.flagged.length + ' รายการ</span></div>' +
+            '<div class="tablewrap"><table><thead><tr><th>วันที่</th><th>เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>เรื่อง</th></tr></thead><tbody>' +
+            r.flagged.map(function (f) { return '<tr><td>' + esc(f.date) + '</td><td>' + esc(f.time) + '</td><td>' + esc(f.name) + '</td><td>' + esc(f.label) + '</td><td class="warn">' + esc(f.flags) + '</td></tr>'; }).join('') +
+            '</tbody></table></div>' : '') +
+          '<div class="sec"><h2>รายละเอียดรายวัน</h2></div>' +
+          (r.rows.length ? '<div class="tablewrap"><table><thead><tr><th>วันที่</th><th>ชื่อ</th><th>เข้า</th><th>ออก</th><th class="num">ชั่วโมง</th><th class="num">สาย (นาที)</th><th>หมายเหตุ</th></tr></thead><tbody>' +
+            r.rows.map(function (x) {
+              return '<tr><td>' + esc(x.Date) + '</td><td>' + esc(x.Name) + '</td><td>' + esc(x.In) + '</td><td>' + esc(x.Out) + '</td>' +
+                '<td class="num">' + (x.HasHours ? money(x.Hours) : '') + '</td><td class="num">' + (x.Late || '') + '</td>' +
+                '<td class="' + (x.Note && x.Note !== 'ยังทำงานอยู่' ? 'warn' : '') + '">' + esc(x.Note) + '</td></tr>';
+            }).join('') + '</tbody></table></div>' : '<div class="empty">—</div>');
+        $('[data-month]').onchange = function (ev) { if (ev.target.value) payTab(ev.target.value); };
+      }).catch(fail);
+    }
+
+    // ───── ตั้งค่า & QR ─────
+    function setTab(msg) {
+      A.api('/api/admin/settings').then(function (s) {
+        var url = s.addresses[0] || '';
+        $('#body').innerHTML =
+          '<div class="settings">' +
+          '<div class="card qrprint printable"><h2>' + esc(shopName) + '</h2><p style="margin:0">สแกนเพื่อลงเวลาทำงาน</p>' +
+            '<div class="qr-wrap"><div class="qr-box" id="qr"></div></div>' +
+            (url ? '<div class="url">' + esc(url) + '</div><p class="small">① ต่อ Wi-Fi ร้าน ② เปิดกล้องมือถือสแกน ③ เลือกชื่อ + PIN ④ เซลฟี่ แล้วกดเข้า/ออกงาน</p>'
+                 : '<div class="err">คอมยังไม่ได้ต่อ Wi-Fi/สายแลน</div>') +
+            '<button class="btn small green noprint" data-print>🖨️ พิมพ์ QR ไปแปะ</button>' +
+            (s.addresses.length > 1 ? '<p class="small muted noprint">ถ้ามือถือสแกนแล้วเข้าไม่ได้ ลองที่อยู่อื่น: ' + s.addresses.slice(1).map(esc).join(' , ') + '</p>' : '') +
+          '</div>' +
+          '<form class="card" data-f><h2>ตั้งค่า</h2>' +
+            '<label class="field">ชื่อร้าน<input name="shopName" value="' + esc(s.shopName) + '"></label>' +
+            '<label class="check"><input type="checkbox" name="requirePhoto"' + (s.requirePhoto ? ' checked' : '') + '> บังคับถ่ายเซลฟี่ตอนลงเวลาด้วยมือถือ</label>' +
+            '<label class="check"><input type="checkbox" name="kioskPhoto"' + (s.kioskPhoto ? ' checked' : '') + '> โชว์รูปเซลฟี่บนหน้าจอร้าน 5 วินาที</label>' +
+            '<label class="field">กันกดซ้ำ (นาที)<input name="minGapMinutes" inputmode="numeric" value="' + s.minGapMinutes + '"></label>' +
+            '<label class="field">ลบรูปเซลฟี่ที่เก่ากว่า (วัน, 0 = เก็บตลอด)<input name="photoKeepDays" inputmode="numeric" value="' + s.photoKeepDays + '"></label>' +
+            '<label class="field">เปลี่ยนรหัสเจ้าของร้าน (เว้นว่างถ้าไม่เปลี่ยน)<input class="pin" name="newPin" type="password" inputmode="numeric"></label>' +
+            '<p class="okmsg">' + esc(msg || '') + '</p><p class="err"></p>' +
+            '<button class="btn primary">💾 บันทึกการตั้งค่า</button></form>' +
+          '<div class="card"><h2>เปิดอัตโนมัติ & สำรองข้อมูล</h2>' +
+            (s.startup.supported ? '<label class="check"><input type="checkbox" data-startup' + (s.startup.enabled ? ' checked' : '') + '> เปิดโปรแกรมเองทุกครั้งที่เปิดคอม</label>' : '') +
+            '<p class="small muted">ข้อมูลทั้งหมดเก็บที่:<br><b>' + esc(s.dataDir) + '</b><br>โปรแกรมสำรองข้อมูลให้ทุกวันในโฟลเดอร์ <b>สำรอง</b> · แนะนำให้กดดาวน์โหลดไฟล์สำรองเก็บไว้ในแฟลชไดรฟ์หรือส่งเข้า LINE ตัวเอง <b>เดือนละครั้ง</b> เผื่อคอมเสีย</p>' +
+            '<div class="rowbtns"><a class="btn small green" href="/api/admin/backup.zip">⬇️ ไฟล์สำรอง (ข้อมูล)</a><a class="btn small" href="/api/admin/backup.zip?photos=1">⬇️ ไฟล์สำรอง + รูปทั้งหมด</a></div>' +
+            '<div class="rowbtns"><button class="btn small" data-logout>ออกจากระบบ</button></div>' +
+          '</div></div>';
+        if (url) A.qr($('#qr'), url);
+        $('[data-print]').onclick = function () { window.print(); };
+        var f = $('[data-f]');
+        f.onsubmit = function (ev) {
+          ev.preventDefault();
+          A.api('/api/admin/settings', {
+            shopName: f.shopName.value, requirePhoto: f.requirePhoto.checked, kioskPhoto: f.kioskPhoto.checked,
+            minGapMinutes: Number(f.minGapMinutes.value) || 0, photoKeepDays: Number(f.photoKeepDays.value) || 0, newPin: f.newPin.value.trim()
+          }).then(function () { shopName = f.shopName.value.trim() || shopName; setTab('บันทึกแล้ว ✅'); })
+            .catch(function (e) { $('.err', f).textContent = e.message; });
+        };
+        var su = $('[data-startup]');
+        if (su) su.onchange = function () {
+          A.api('/api/admin/startup', { enabled: su.checked }).catch(function (e) { su.checked = !su.checked; alert(e.message); });
+        };
+        $('[data-logout]').onclick = function () { A.api('/api/admin/logout', {}).then(boot); };
+      }).catch(fail);
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>
